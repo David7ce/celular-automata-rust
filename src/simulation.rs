@@ -6,10 +6,23 @@ use crate::rules::RuleSet;
 
 pub type Cell = (i64, i64);
 
+/// The 2D plane is finite, not infinite: cells outside these bounds can
+/// never be painted, stamped, randomized, or born into. This bounds memory
+/// and per-generation cost even under explosive rules, and gives the
+/// minimap a fixed world to draw. Existing live cells are always within
+/// bounds already (nothing can insert one outside), so `next_generation`
+/// only needs to filter birth candidates, not survivors.
+pub const WORLD_MIN: Cell = (-512, -512);
+pub const WORLD_MAX: Cell = (511, 511);
+
+pub fn in_world(cell: Cell) -> bool {
+    cell.0 >= WORLD_MIN.0 && cell.0 <= WORLD_MAX.0 && cell.1 >= WORLD_MIN.1 && cell.1 <= WORLD_MAX.1
+}
+
 /// Side length (in cells) of one spatial-index chunk. Chosen to be a bit
 /// larger than a typical zoomed-in viewport in cells, so a visible-bounds
 /// query touches only a handful of chunks.
-const CHUNK_SIZE: i64 = 32;
+pub const CHUNK_SIZE: i64 = 32;
 
 fn chunk_of(cell: Cell) -> (i64, i64) {
     (cell.0.div_euclid(CHUNK_SIZE), cell.1.div_euclid(CHUNK_SIZE))
@@ -49,6 +62,9 @@ impl SimState {
     }
 
     fn insert_cell(&mut self, cell: Cell) {
+        if !in_world(cell) {
+            return;
+        }
         if self.live.insert(cell) {
             self.chunks.entry(chunk_of(cell)).or_default().insert(cell);
         }
@@ -105,6 +121,11 @@ impl SimState {
     }
 
     pub fn randomize(&mut self, min: Cell, max: Cell, density: f32) {
+        let min = (min.0.max(WORLD_MIN.0), min.1.max(WORLD_MIN.1));
+        let max = (max.0.min(WORLD_MAX.0), max.1.min(WORLD_MAX.1));
+        if min.0 > max.0 || min.1 > max.1 {
+            return;
+        }
         let mut rng = rand::rng();
         for x in min.0..=max.0 {
             for y in min.1..=max.1 {
@@ -113,6 +134,14 @@ impl SimState {
                 }
             }
         }
+    }
+
+    /// Chunk coordinates that currently contain at least one live cell —
+    /// a coarse, `O(occupied chunks)` overview of where activity is on the
+    /// whole (potentially huge) plane, used by the minimap instead of
+    /// iterating every live cell.
+    pub fn occupied_chunks(&self) -> impl Iterator<Item = (i64, i64)> + '_ {
+        self.chunks.keys().copied()
     }
 
     /// Live cells within `[min, max]` (inclusive), for rendering only the
@@ -189,11 +218,14 @@ fn next_generation(live: &HashSet<Cell>, rule: &RuleSet) -> HashSet<Cell> {
     counts
         .into_iter()
         .filter(|&(cell, n)| {
-            if live.contains(&cell) {
+            let alive_next = if live.contains(&cell) {
                 rule.survive[n as usize]
             } else {
                 rule.birth[n as usize]
-            }
+            };
+            // Existing live cells are always in-world already; this only
+            // ever excludes birth candidates just outside the boundary.
+            alive_next && in_world(cell)
         })
         .map(|(cell, _)| cell)
         .collect()

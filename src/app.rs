@@ -1,8 +1,8 @@
-use eframe::egui::{self, Color32, Key, Pos2, Rect, Sense, Stroke, Vec2};
+use eframe::egui::{self, Color32, Key, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
 
 use crate::patterns::{self, Category, Pattern};
 use crate::rules;
-use crate::simulation::{Cell, SimState};
+use crate::simulation::{Cell, SimState, CHUNK_SIZE, WORLD_MAX, WORLD_MIN};
 use crate::view::{View, MAX_CELL_SIZE, MIN_CELL_SIZE};
 
 /// Zoom factor applied per keyboard/button zoom-shortcut press ('+'/'-').
@@ -11,6 +11,10 @@ const KEY_ZOOM_STEP: f32 = 1.2;
 const PAN_STEP: f32 = 60.0;
 /// Options for the "generations to skip" selector next to Step.
 const SKIP_OPTIONS: &[u32] = &[0, 5, 10, 50, 100, 500, 1000];
+/// On-screen size of the minimap box, anchored to the canvas's bottom-right
+/// corner with `MINIMAP_MARGIN` of breathing room.
+const MINIMAP_SIZE: Vec2 = Vec2::new(160.0, 160.0);
+const MINIMAP_MARGIN: f32 = 12.0;
 
 pub struct App {
     sim: SimState,
@@ -29,6 +33,12 @@ pub struct App {
     /// Canvas size from the last frame, used to anchor button/slider zoom on
     /// the canvas center (the mouse-based zoom anchors on the cursor instead).
     canvas_size: Vec2,
+    /// Whether an in-progress drag started inside the minimap (so it keeps
+    /// steering the camera even if the pointer strays outside the box).
+    dragging_minimap: bool,
+    /// Shows live gesture/input values in a canvas corner, for diagnosing
+    /// touchpad gestures that don't behave as expected on a given machine.
+    show_input_debug: bool,
 }
 
 impl App {
@@ -51,6 +61,8 @@ impl App {
             show_grid: true,
             skip_generations: 0,
             canvas_size: Vec2::new(800.0, 600.0),
+            dragging_minimap: false,
+            show_input_debug: false,
         }
     }
 }
@@ -94,7 +106,11 @@ impl App {
                 if ui.button(if self.sim.running { "Pause" } else { "Play" }).clicked() {
                     self.sim.running = !self.sim.running;
                 }
-                if ui.button("Step").clicked() {
+                if ui
+                    .button("Step")
+                    .on_hover_text("Advance by the Skip amount (1 generation if Skip is 0)")
+                    .clicked()
+                {
                     self.sim.step_n(self.skip_generations);
                 }
                 ui.label("Skip");
@@ -105,10 +121,14 @@ impl App {
                             ui.selectable_value(&mut self.skip_generations, n, n.to_string());
                         }
                     });
-                if ui.button("Clear").clicked() {
+                if ui.button("Clear").on_hover_text("Erase every live cell").clicked() {
                     self.sim.clear();
                 }
-                if ui.button("Random").clicked() {
+                if ui
+                    .button("Random")
+                    .on_hover_text(format!("Fill the visible area at {:.0}% density", self.random_density * 100.0))
+                    .clicked()
+                {
                     let (min, max) = self.view.visible_bounds(ui.available_size().max(Vec2::new(400.0, 400.0)));
                     self.sim.randomize(min, max, self.random_density);
                 }
@@ -123,43 +143,60 @@ impl App {
                 ui.separator();
                 ui.label(format!("Gen: {}", self.sim.generation));
                 ui.label(format!("Live: {}", self.sim.live.len()));
-                ui.label(format!("Births: {}", self.sim.last_births));
-                ui.label(format!("Deaths: {}", self.sim.last_deaths));
+                ui.label(format!("Births: {}", self.sim.last_births))
+                    .on_hover_text("Cells born on the most recent step (or summed over a Skip batch)");
+                ui.label(format!("Deaths: {}", self.sim.last_deaths))
+                    .on_hover_text("Cells that died on the most recent step (or summed over a Skip batch)");
             });
 
             ui.horizontal(|ui| {
-                // On-screen zoom/pan controls: a fallback for touchpads whose
-                // pinch/scroll gestures aren't recognized as such by the OS.
+                // On-screen zoom/pan controls: a reliable fallback for
+                // touchpads whose pinch/scroll gestures the OS/windowing
+                // layer doesn't deliver to the app (this is a real
+                // limitation on Linux — see ROADMAP.md).
                 let center = self.canvas_size / 2.0;
                 ui.label("Zoom");
-                if ui.button("-").clicked() {
+                if ui.button("-").on_hover_text("Zoom out").clicked() {
                     self.view.zoom(1.0 / KEY_ZOOM_STEP, center);
                 }
                 let mut cell_size = self.view.cell_size;
                 if ui
                     .add(egui::Slider::new(&mut cell_size, MIN_CELL_SIZE..=MAX_CELL_SIZE).show_value(false))
+                    .on_hover_text("Zoom level")
                     .changed()
                 {
                     self.view.zoom(cell_size / self.view.cell_size, center);
                 }
-                if ui.button("+").clicked() {
+                if ui.button("+").on_hover_text("Zoom in").clicked() {
                     self.view.zoom(KEY_ZOOM_STEP, center);
                 }
+                ui.label(format!("{:.0}px/cell", self.view.cell_size));
 
                 ui.separator();
                 ui.label("Pan");
-                if ui.button("<").clicked() {
+                if ui.button("<").on_hover_text("Pan left").clicked() {
                     self.view.pan(Vec2::new(PAN_STEP, 0.0));
                 }
-                if ui.button("^").clicked() {
+                if ui.button("^").on_hover_text("Pan up").clicked() {
                     self.view.pan(Vec2::new(0.0, PAN_STEP));
                 }
-                if ui.button("v").clicked() {
+                if ui.button("v").on_hover_text("Pan down").clicked() {
                     self.view.pan(Vec2::new(0.0, -PAN_STEP));
                 }
-                if ui.button(">").clicked() {
+                if ui.button(">").on_hover_text("Pan right").clicked() {
                     self.view.pan(Vec2::new(-PAN_STEP, 0.0));
                 }
+                if ui
+                    .button("Reset view")
+                    .on_hover_text("Recenter on the world and reset zoom")
+                    .clicked()
+                {
+                    self.view = View::default();
+                }
+
+                ui.separator();
+                ui.checkbox(&mut self.show_input_debug, "Show input debug")
+                    .on_hover_text("Live scroll/zoom/touch values, to diagnose gestures that don't do anything");
             });
 
             ui.horizontal(|ui| {
@@ -254,6 +291,7 @@ impl App {
             if scroll_delta != Vec2::ZERO {
                 self.view.pan(scroll_delta);
             }
+            let touch_count = ctx.input(|i| i.multi_touch().map_or(0, |t| t.num_touches));
 
             // Keyboard shortcuts (ignored while a widget like a text field wants
             // keyboard input, though none currently exist in this app).
@@ -286,48 +324,77 @@ impl App {
                 });
             }
 
-            match self.selected_pattern {
-                Some(idx) => {
-                    // Placing a pattern: a single click stamps it once.
-                    if response.clicked()
-                        && let Some(pointer) = response.interact_pointer_pos()
-                    {
-                        let cell = self.view.screen_to_cell(rect.min, pointer);
-                        let cells = self.library[idx].cells.clone();
-                        self.sim.stamp(&cells, cell);
-                    }
+            // The minimap lives in the bottom-right corner and intercepts
+            // clicks/drags there for navigation instead of painting/stamping.
+            let minimap_rect = Rect::from_min_size(rect.max - MINIMAP_SIZE - Vec2::splat(MINIMAP_MARGIN), MINIMAP_SIZE);
+            if response.drag_started()
+                && let Some(p) = response.interact_pointer_pos()
+                && minimap_rect.contains(p)
+            {
+                self.dragging_minimap = true;
+            }
+            let minimap_handled = if self.dragging_minimap {
+                if let Some(p) = response.interact_pointer_pos().or_else(|| response.hover_pos()) {
+                    self.view.center_on(minimap_to_world(minimap_rect, p), self.canvas_size);
                 }
-                None => {
-                    // Free drawing: press-and-drag paints (or erases) every cell the
-                    // cursor passes over, like a paintbrush.
-                    if response.drag_started() {
-                        if let Some(pointer) = response.interact_pointer_pos() {
+                if response.drag_stopped() {
+                    self.dragging_minimap = false;
+                }
+                true
+            } else if response.clicked()
+                && let Some(p) = response.interact_pointer_pos()
+                && minimap_rect.contains(p)
+            {
+                self.view.center_on(minimap_to_world(minimap_rect, p), self.canvas_size);
+                true
+            } else {
+                false
+            };
+
+            if !minimap_handled {
+                match self.selected_pattern {
+                    Some(idx) => {
+                        // Placing a pattern: a single click stamps it once.
+                        if response.clicked()
+                            && let Some(pointer) = response.interact_pointer_pos()
+                        {
                             let cell = self.view.screen_to_cell(rect.min, pointer);
-                            let value = !self.sim.live.contains(&cell);
-                            self.sim.set_cell(cell, value);
-                            self.paint_value = Some(value);
-                            self.last_paint_cell = Some(cell);
+                            let cells = self.library[idx].cells.clone();
+                            self.sim.stamp(&cells, cell);
                         }
-                    } else if response.dragged() {
-                        if let (Some(pointer), Some(value)) = (response.interact_pointer_pos(), self.paint_value) {
-                            let cell = self.view.screen_to_cell(rect.min, pointer);
-                            if Some(cell) != self.last_paint_cell {
-                                let from = self.last_paint_cell.unwrap_or(cell);
-                                for c in line_cells(from, cell) {
-                                    self.sim.set_cell(c, value);
-                                }
+                    }
+                    None => {
+                        // Free drawing: press-and-drag paints (or erases) every cell the
+                        // cursor passes over, like a paintbrush.
+                        if response.drag_started() {
+                            if let Some(pointer) = response.interact_pointer_pos() {
+                                let cell = self.view.screen_to_cell(rect.min, pointer);
+                                let value = !self.sim.live.contains(&cell);
+                                self.sim.set_cell(cell, value);
+                                self.paint_value = Some(value);
                                 self.last_paint_cell = Some(cell);
                             }
+                        } else if response.dragged() {
+                            if let (Some(pointer), Some(value)) = (response.interact_pointer_pos(), self.paint_value) {
+                                let cell = self.view.screen_to_cell(rect.min, pointer);
+                                if Some(cell) != self.last_paint_cell {
+                                    let from = self.last_paint_cell.unwrap_or(cell);
+                                    for c in line_cells(from, cell) {
+                                        self.sim.set_cell(c, value);
+                                    }
+                                    self.last_paint_cell = Some(cell);
+                                }
+                            }
+                        } else if response.clicked()
+                            && let Some(pointer) = response.interact_pointer_pos()
+                        {
+                            let cell = self.view.screen_to_cell(rect.min, pointer);
+                            self.sim.toggle_cell(cell);
                         }
-                    } else if response.clicked()
-                        && let Some(pointer) = response.interact_pointer_pos()
-                    {
-                        let cell = self.view.screen_to_cell(rect.min, pointer);
-                        self.sim.toggle_cell(cell);
-                    }
-                    if response.drag_stopped() {
-                        self.paint_value = None;
-                        self.last_paint_cell = None;
+                        if response.drag_stopped() {
+                            self.paint_value = None;
+                            self.last_paint_cell = None;
+                        }
                     }
                 }
             }
@@ -378,8 +445,88 @@ impl App {
                 }
             }
 
+            // The plane is finite: draw its edge wherever it's on-screen, so
+            // it's clear painting/patterns stop working past this line.
+            let world_screen_min = self.view.cell_to_screen(rect.min, WORLD_MIN);
+            let world_screen_max = self.view.cell_to_screen(rect.min, (WORLD_MAX.0 + 1, WORLD_MAX.1 + 1));
+            painter.rect_stroke(
+                Rect::from_min_max(world_screen_min, world_screen_max),
+                0.0,
+                Stroke::new(2.0, Color32::from_rgb(190, 90, 90)),
+                StrokeKind::Outside,
+            );
+
+            draw_minimap(&self.sim, &self.view, self.canvas_size, &painter, minimap_rect);
+
+            if self.show_input_debug {
+                let text = format!(
+                    "zoom_delta={zoom_delta:.4}\nscroll_delta=({:.1}, {:.1})\ntouches={touch_count}\ncell_size={cs:.1}",
+                    scroll_delta.x, scroll_delta.y,
+                );
+                painter.rect_filled(
+                    Rect::from_min_size(rect.min + Vec2::splat(8.0), Vec2::new(220.0, 70.0)),
+                    4.0,
+                    Color32::from_black_alpha(200),
+                );
+                painter.text(
+                    rect.min + Vec2::splat(12.0),
+                    egui::Align2::LEFT_TOP,
+                    text,
+                    egui::FontId::monospace(13.0),
+                    Color32::from_rgb(230, 230, 230),
+                );
+            }
         });
     }
+}
+
+/// Maps a screen point inside the minimap box to the world cell it
+/// represents, for click/drag-to-navigate.
+fn minimap_to_world(minimap_rect: Rect, p: Pos2) -> Cell {
+    let world_w = (WORLD_MAX.0 - WORLD_MIN.0 + 1) as f32;
+    let world_h = (WORLD_MAX.1 - WORLD_MIN.1 + 1) as f32;
+    let local = p - minimap_rect.min;
+    let fx = (local.x / minimap_rect.width()).clamp(0.0, 1.0);
+    let fy = (local.y / minimap_rect.height()).clamp(0.0, 1.0);
+    (
+        (WORLD_MIN.0 as f32 + fx * world_w).round() as i64,
+        (WORLD_MIN.1 as f32 + fy * world_h).round() as i64,
+    )
+}
+
+/// Draws the bottom-right minimap: the whole (finite) plane, a coarse marker
+/// per occupied spatial-index chunk (cheap: `O(occupied chunks)`, not
+/// `O(live cells)`), and a rectangle showing the current viewport.
+fn draw_minimap(sim: &SimState, view: &View, canvas_size: Vec2, painter: &egui::Painter, minimap_rect: Rect) {
+    painter.rect_filled(minimap_rect, 4.0, Color32::from_black_alpha(215));
+
+    let world_w = (WORLD_MAX.0 - WORLD_MIN.0 + 1) as f32;
+    let world_h = (WORLD_MAX.1 - WORLD_MIN.1 + 1) as f32;
+    let sx = minimap_rect.width() / world_w;
+    let sy = minimap_rect.height() / world_h;
+
+    for (cx, cy) in sim.occupied_chunks() {
+        let x0 = minimap_rect.min.x + ((cx * CHUNK_SIZE) as f32 - WORLD_MIN.0 as f32) * sx;
+        let y0 = minimap_rect.min.y + ((cy * CHUNK_SIZE) as f32 - WORLD_MIN.1 as f32) * sy;
+        let w = (CHUNK_SIZE as f32 * sx).max(1.0);
+        let h = (CHUNK_SIZE as f32 * sy).max(1.0);
+        let chunk_rect = Rect::from_min_size(Pos2::new(x0, y0), Vec2::new(w, h)).intersect(minimap_rect);
+        painter.rect_filled(chunk_rect, 0.0, Color32::from_rgb(90, 170, 100));
+    }
+
+    let (vmin, vmax) = view.visible_bounds(canvas_size);
+    let vp_min = Pos2::new(
+        minimap_rect.min.x + (vmin.0.clamp(WORLD_MIN.0, WORLD_MAX.0) as f32 - WORLD_MIN.0 as f32) * sx,
+        minimap_rect.min.y + (vmin.1.clamp(WORLD_MIN.1, WORLD_MAX.1) as f32 - WORLD_MIN.1 as f32) * sy,
+    );
+    let vp_max = Pos2::new(
+        minimap_rect.min.x + ((vmax.0 + 1).clamp(WORLD_MIN.0, WORLD_MAX.0 + 1) as f32 - WORLD_MIN.0 as f32) * sx,
+        minimap_rect.min.y + ((vmax.1 + 1).clamp(WORLD_MIN.1, WORLD_MAX.1 + 1) as f32 - WORLD_MIN.1 as f32) * sy,
+    );
+    let viewport_rect = Rect::from_min_max(vp_min, vp_max).intersect(minimap_rect);
+    painter.rect_stroke(viewport_rect, 0.0, Stroke::new(1.5, Color32::from_rgb(255, 210, 90)), StrokeKind::Outside);
+
+    painter.rect_stroke(minimap_rect, 4.0, Stroke::new(1.0, Color32::from_gray(110)), StrokeKind::Outside);
 }
 
 /// Bresenham line between two cells, so fast drags don't leave gaps.

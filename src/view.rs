@@ -58,4 +58,10 @@ impl View {
         );
         (min, max)
     }
+
+    /// Re-centers the view on `cell` (keeping the current zoom level), for
+    /// minimap click/drag navigation.
+    pub fn center_on(&mut self, cell: Cell, canvas_size: Vec2) {
+        self.offset = Vec2::new(cell.0 as f32, cell.1 as f32) - (canvas_size / 2.0) / self.cell_size;
+    }
 }

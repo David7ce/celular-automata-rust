@@ -149,6 +149,64 @@ first pass (Beacon: guessed 6, actually 8; Pentadecathlon: guessed 10,
 actually 12) — corrected against the same canonical source rather than
 trusting memory either way.
 
+## Update — 2026-09-07 (bounded plane, minimap, gesture root-cause, UX pass)
+
+The user reported two-finger pinch/pan *still* not working on their laptop
+touchpad even after the earlier gesture rework, plus asked for the plane to
+have defined limits, a minimap, and general UI/UX polish.
+
+**Root-caused the gesture issue** by reading `winit`'s source directly
+(`~/.cargo/registry/.../winit-0.30.13/src/event.rs` and
+`platform_impl/macos/view.rs`): `WindowEvent::PinchGesture`, `PanGesture`,
+`RotationGesture`, and `DoubleTapGesture` are **only ever emitted on macOS
+and iOS** — there is no X11 or Wayland code path that produces them at all,
+in this winit version. `egui-winit` does correctly translate them into
+egui's zoom/pan events (confirmed in `egui-winit-0.36.1/src/lib.rs`), so
+this was never a bug in our code or in egui — genuine pinch-to-zoom via a
+touchpad simply cannot reach a `winit`-based app on Linux today. Ctrl+scroll
+zoom still works (egui synthesizes that itself, independent of the OS
+gesture layer). Two-finger-scroll-to-pan is a different, ordinary
+mechanism (`WindowEvent::MouseWheel`) that Linux *does* support, so it's
+less clear why the user says that also doesn't work — added a "Show input
+debug" checkbox that overlays live `zoom_delta`/`scroll_delta`/touch-count
+values on the canvas so the next report can include actual numbers instead
+of "doesn't work", which should make this diagnosable for real instead of
+guessed at again.
+
+Given the platform limitation, on-screen zoom/pan controls (added last
+round) are now the *primary* navigation method on Linux touchpads, not a
+fallback — a "Reset view" button was added alongside them.
+
+**Bounded the plane.** `simulation::WORLD_MIN`/`WORLD_MAX` fix the world to
+`[-512, 511]` on each axis (1024x1024 cells). `insert_cell` — the single
+choke point all of `toggle_cell`/`set_cell`/`stamp`/`randomize` already
+funneled through — now silently drops anything outside those bounds, and
+`next_generation` filters birth candidates the same way, so the boundary
+acts like a wall (no wraparound). The canvas draws a red rectangle at the
+world edge whenever it's on-screen. This also caps memory/CPU cost under a
+fully-saturated explosive rule, which is a nice side benefit given the
+original "corruption" report.
+
+**Added a minimap** in the canvas's bottom-right corner: the whole plane,
+a green marker per *occupied spatial-index chunk* (reusing the existing
+`chunks` index from the earlier perf fix — `O(occupied chunks)`, not
+`O(live cells)`, so it stays cheap even on a busy board), and a yellow
+outline for the current viewport. Click or drag inside it to recenter the
+camera anywhere on the plane instantly (`View::center_on`) — this alone
+should help a lot with the "how do I get back to where I was" problem that
+comes with a touchpad-unfriendly pan story.
+
+**UX pass**: hover tooltips on most buttons/sliders (zoom, pan, Step,
+Clear, Random showing its actual density, Births/Deaths explaining what
+they count), a live zoom-level readout ("16px/cell") next to the zoom
+slider, and the Reset View button mentioned above. `cargo clippy` run
+clean (no warnings) after all of this.
+
+Not independently tested live — same standing limitation as before (no way
+to generate real touchpad hardware events in this environment). The
+input-debug overlay is specifically meant to make the *next* round of
+feedback actionable without needing that.
+
 ## Next up (priority order)
 
 1. **Random-fill density control.** Currently hardcoded to 0.35 — expose it
@@ -165,12 +223,18 @@ trusting memory either way.
    built and run so far. The dependency set (`eframe`, `rand`) is
    cross-platform with no OS-specific code, so this should mostly be a
    matter of running `cargo build --release` on each target and fixing
-   anything that comes up (packaging/icon per OS if desired).
+   anything that comes up (packaging/icon per OS if desired). On macOS in
+   particular, the pinch/pan gesture path should actually light up, unlike
+   on Linux — worth confirming.
 
 5. **Packaging.** Right now it's a raw binary + a hand-written `.desktop`
    file. Consider `cargo-bundle` or `cargo-packager` for a proper
    `.app`/`.exe`/`.AppImage` if this needs to be distributed beyond this
    machine.
+
+6. **World size tuning.** `WORLD_MIN`/`WORLD_MAX` (1024x1024) is a
+   reasonable-guess default, not a researched one — revisit if it feels
+   too small/large in practice, e.g. for large guns/puffers that outrun it.
 
 ## Nice-to-haves (not scheduled)
 

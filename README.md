@@ -18,16 +18,27 @@ Windows, macOS and Linux from the same codebase.
   long-term random-soup behavior (`stable`, `chaotic`, or `explosive`) in the
   dropdown, e.g. "Diamoeba (chaotic)". Plus 9 Birth / 9 Survive checkboxes to
   build any custom rule by hand.
-- **Infinite sparse grid**: live cells are stored as a `HashSet<(i64, i64)>`
-  (no board size limit, no wraparound), stepped with the standard
-  neighbor-counting algorithm (`O(live cells)` per generation).
+- **Finite 1024x1024 plane**: live cells are stored as a `HashSet<(i64, i64)>`
+  bounded to `[-512, 511]` on each axis (`simulation::WORLD_MIN/WORLD_MAX`) —
+  no wraparound, cells simply can't be painted, stamped, or born past the
+  edge (drawn as a red boundary line on the canvas), stepped with the
+  standard neighbor-counting algorithm (`O(live cells)` per generation).
+- **Minimap**: bottom-right overlay showing the whole plane, a green marker
+  per occupied region, and a yellow outline for the current viewport. Click
+  or drag inside it to jump/pan the camera anywhere on the plane instantly —
+  handy since the plane is much bigger than what's visible at once.
 - **Zoom & pan**: pinch-to-zoom (or Ctrl+scroll) anchored on the cursor/gesture,
   clamped between a min and max cell size; two-finger trackpad drag pans
   freely in any direction, like scrolling a map on a touchscreen — panning
   and zooming are separate gestures and never fight each other. On-screen
-  `-`/slider/`+` zoom controls and `<`/`^`/`v`/`>` pan buttons in the top bar
-  work identically without relying on gesture recognition, for touchpads
-  that don't report pinch/scroll gestures to the app.
+  `-`/slider/`+` zoom controls, `<`/`^`/`v`/`>` pan buttons, and a "Reset
+  view" button in the top bar work identically without relying on gesture
+  recognition — true pinch-to-zoom via a laptop touchpad is a platform
+  limitation on Linux (winit only wires up `PinchGesture`/`PanGesture` on
+  macOS/iOS), so these on-screen controls are the primary way to navigate
+  there, not just a fallback. A "Show input debug" checkbox overlays live
+  `zoom_delta`/`scroll_delta`/touch values on the canvas for diagnosing any
+  gesture that still seems to do nothing.
 - **Speed control**: Play/Pause/Step, generations-per-second slider.
 - **Pattern library**: 28 well-known patterns across 5 categories (still
   lifes, oscillators, spaceships, guns, methuselahs), decoded from standard
@@ -63,8 +74,10 @@ src/
 | Freehand paint a trail | Left-click-drag (erases instead if the stroke starts on a live cell) |
 | Place a pattern | Select it in the left panel, then click the canvas |
 | Cancel pattern placement | Right-click, `Esc`, or the "Cancel" button in the panel |
-| Zoom | Pinch gesture, Ctrl + scroll, `+`/`-` keys, or the `-`/slider/`+` controls in the top bar |
-| Pan | Two-finger trackpad drag (any direction), arrow keys, or the `<`/`^`/`v`/`>` buttons in the top bar |
+| Zoom | Pinch gesture (macOS/iOS only — see Known issues), Ctrl + scroll, `+`/`-` keys, or the `-`/slider/`+` controls in the top bar |
+| Pan | Two-finger trackpad drag, arrow keys, the `<`/`^`/`v`/`>` buttons, or click/drag on the minimap |
+| Jump to a distant part of the plane | Click or drag inside the minimap (bottom-right corner) |
+| Reset the camera | "Reset view" button in the top bar |
 | Play / Pause | `Space`, or the button in the top bar |
 | Step (by the selected skip amount) | `S`, or the "Step" button |
 | Choose how many generations Step advances | "Skip" dropdown (0, 5, 10, 50, 100, 500, 1000 — 0 behaves as 1) |
@@ -97,7 +110,17 @@ environment so far.
 
 ## Known issues
 
-None currently tracked. (Rendering used to scan every live cell each frame
-to cull to the viewport, which could bog down during heavy freehand
-painting on a large board — fixed by adding a chunked spatial index in
-`SimState`; see `ROADMAP.md` for details.)
+- **True pinch-to-zoom trackpad gestures don't reach the app on Linux.**
+  This is a `winit` platform limitation, not a bug here: `winit`'s
+  `PinchGesture`/`PanGesture`/`RotationGesture` events (which `egui-winit`
+  does translate into zoom/pan) are only ever emitted on macOS/iOS — there's
+  no code path that produces them on X11 or Wayland. Ctrl+scroll still
+  zooms (egui synthesizes that itself from the scroll wheel), and the
+  on-screen zoom/pan controls added in the top bar work everywhere
+  regardless. Two-finger-scroll-to-pan *should* still work on Linux (it's
+  just a regular high-resolution scroll-wheel event, not a special
+  gesture) — if it doesn't on a given machine, turn on "Show input debug"
+  in the top bar and see whether `scroll_delta` moves at all while
+  two-finger-scrolling; that'll tell us whether it's this app, the desktop
+  environment intercepting the gesture, or the touchpad driver.
+- See `ROADMAP.md` for what's next.
