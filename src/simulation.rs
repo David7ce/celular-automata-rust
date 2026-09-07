@@ -12,8 +12,10 @@ pub type Cell = (i64, i64);
 /// minimap a fixed world to draw. Existing live cells are always within
 /// bounds already (nothing can insert one outside), so `next_generation`
 /// only needs to filter birth candidates, not survivors.
-pub const WORLD_MIN: Cell = (-512, -512);
-pub const WORLD_MAX: Cell = (511, 511);
+///
+/// Sized to 1920x1080 (16:9), matching a "Full HD" screen's proportions.
+pub const WORLD_MIN: Cell = (-960, -540);
+pub const WORLD_MAX: Cell = (959, 539);
 
 pub fn in_world(cell: Cell) -> bool {
     cell.0 >= WORLD_MIN.0 && cell.0 <= WORLD_MAX.0 && cell.1 >= WORLD_MIN.1 && cell.1 <= WORLD_MAX.1

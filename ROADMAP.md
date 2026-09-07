@@ -207,6 +207,27 @@ to generate real touchpad hardware events in this environment). The
 input-debug overlay is specifically meant to make the *next* round of
 feedback actionable without needing that.
 
+## Update — 2026-09-07 (16:9 world + hard viewport clamp)
+
+Two follow-ups on the plane/minimap work above:
+
+- **World resized to 1920x1080** (`x ∈ [-960, 959]`, `y ∈ [-540, 539]`) to
+  match a 16:9 "Full HD" aspect ratio instead of the previous 1024x1024
+  square, per explicit request.
+- **The viewport can no longer show anything outside the map.** Added
+  `View::clamp_to_world`, called once per frame in `central_canvas` after
+  every pan/zoom input for that frame (mouse gestures, keyboard, the
+  on-screen zoom/pan controls, minimap click/drag) has been applied. It
+  clamps `offset` per-axis so the visible rectangle can slide right up to
+  an edge but never past it; if the viewport is wider or taller than the
+  map itself (e.g. zoomed far out on a large window), that axis is
+  centered on the map instead of clamped to a corner, since no in-bounds
+  offset would fill the screen anyway. Covered by 3 new unit tests in
+  `view.rs` (`clamp_pulls_a_far_away_offset_back_inside_the_world`,
+  `clamp_leaves_an_already_inside_offset_untouched`,
+  `clamp_centers_an_axis_when_the_viewport_is_wider_than_the_world`) —
+  `cargo test` now has 4 tests total, `cargo clippy` still clean.
+
 ## Next up (priority order)
 
 1. **Random-fill density control.** Currently hardcoded to 0.35 — expose it
@@ -231,10 +252,6 @@ feedback actionable without needing that.
    file. Consider `cargo-bundle` or `cargo-packager` for a proper
    `.app`/`.exe`/`.AppImage` if this needs to be distributed beyond this
    machine.
-
-6. **World size tuning.** `WORLD_MIN`/`WORLD_MAX` (1024x1024) is a
-   reasonable-guess default, not a researched one — revisit if it feels
-   too small/large in practice, e.g. for large guns/puffers that outrun it.
 
 ## Nice-to-haves (not scheduled)
 

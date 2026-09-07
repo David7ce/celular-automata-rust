@@ -18,11 +18,18 @@ Windows, macOS and Linux from the same codebase.
   long-term random-soup behavior (`stable`, `chaotic`, or `explosive`) in the
   dropdown, e.g. "Diamoeba (chaotic)". Plus 9 Birth / 9 Survive checkboxes to
   build any custom rule by hand.
-- **Finite 1024x1024 plane**: live cells are stored as a `HashSet<(i64, i64)>`
-  bounded to `[-512, 511]` on each axis (`simulation::WORLD_MIN/WORLD_MAX`) —
+- **Finite 1920x1080 plane** (16:9, matching a Full HD screen's
+  proportions): live cells are stored as a `HashSet<(i64, i64)>` bounded to
+  `x ∈ [-960, 959]`, `y ∈ [-540, 539]` (`simulation::WORLD_MIN/WORLD_MAX`) —
   no wraparound, cells simply can't be painted, stamped, or born past the
   edge (drawn as a red boundary line on the canvas), stepped with the
   standard neighbor-counting algorithm (`O(live cells)` per generation).
+- **The viewport is always fully inside the map.** Panning/zooming is
+  clamped (`View::clamp_to_world`) so the visible rectangle can slide right
+  up to an edge but never shows empty space beyond it — you can't scroll
+  off into the void. If the viewport is ever wider/taller than the map
+  itself (very zoomed out on a large window), that axis is centered on the
+  map instead.
 - **Minimap**: bottom-right overlay showing the whole plane, a green marker
   per occupied region, and a yellow outline for the current viewport. Click
   or drag inside it to jump/pan the camera anywhere on the plane instantly —

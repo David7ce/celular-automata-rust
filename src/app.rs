@@ -402,6 +402,11 @@ impl App {
                 self.selected_pattern = None;
             }
 
+            // Applied once per frame, after every pan/zoom input this frame
+            // (mouse, keyboard, on-screen buttons/slider, minimap) has had
+            // its say: keeps the viewport fully inside the world borders.
+            self.view.clamp_to_world(self.canvas_size);
+
             let (min, max) = self.view.visible_bounds(rect.size());
             let cs = self.view.cell_size;
 
