@@ -3,6 +3,7 @@ mod patterns;
 mod rle;
 mod rules;
 mod simulation;
+mod starts;
 mod view;
 
 fn main() -> eframe::Result<()> {

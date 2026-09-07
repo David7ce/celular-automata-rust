@@ -3,6 +3,7 @@ use eframe::egui::{self, Color32, Key, Pos2, Rect, Sense, Stroke, StrokeKind, Ve
 use crate::patterns::{self, Category, Pattern};
 use crate::rules;
 use crate::simulation::{Cell, SimState, CHUNK_SIZE, WORLD_MAX, WORLD_MIN};
+use crate::starts;
 use crate::view::{View, MAX_CELL_SIZE, MIN_CELL_SIZE};
 
 /// Zoom factor applied per keyboard/button zoom-shortcut press ('+'/'-').
@@ -16,6 +17,15 @@ const SKIP_OPTIONS: &[u32] = &[0, 5, 10, 50, 100, 500, 1000];
 const MINIMAP_SIZE: Vec2 = Vec2::new(160.0, 160.0);
 const MINIMAP_MARGIN: f32 = 12.0;
 
+/// Everything in this file is the *2D renderer*: it turns `SimState`'s cells
+/// and `View`'s camera into `egui::Painter` calls, and turns pointer/keyboard
+/// input into `View`/`SimState` mutations. It deliberately never reaches
+/// into simulation internals beyond the public `Cell`/`SimState` API, so a
+/// future 3D build could swap this whole module for a `wgpu`-based
+/// voxel/instanced-cube renderer and an orbiting 3D camera (replacing
+/// `View`) without `simulation.rs`/`rules.rs`/`patterns.rs` needing to
+/// change beyond widening `Cell` to `(i64, i64, i64)` (see the neighbor-
+/// offset note in `simulation.rs`).
 pub struct App {
     sim: SimState,
     view: View,
@@ -30,6 +40,12 @@ pub struct App {
     show_grid: bool,
     /// How many generations a single "Step" advances at once (0 behaves as 1).
     skip_generations: u32,
+    /// Eraser tool: when on, click/drag always removes cells (instead of the
+    /// default draw tool's toggle/paint-a-trail behavior) and pattern
+    /// placement is disabled, mutually exclusive with `selected_pattern`.
+    eraser_mode: bool,
+    /// Index into `starts::START_CONFIGS`, the "Start" dropdown's selection.
+    selected_start: usize,
     /// Canvas size from the last frame, used to anchor button/slider zoom on
     /// the canvas center (the mouse-based zoom anchors on the cursor instead).
     canvas_size: Vec2,
@@ -60,6 +76,8 @@ impl App {
             last_paint_cell: None,
             show_grid: true,
             skip_generations: 0,
+            eraser_mode: false,
+            selected_start: 0,
             canvas_size: Vec2::new(800.0, 600.0),
             dragging_minimap: false,
             show_input_debug: false,
@@ -85,6 +103,7 @@ impl eframe::App for App {
 impl App {
     fn top_panel(&mut self, ui: &mut egui::Ui) {
         egui::Panel::top("controls").show(ui, |ui| {
+            ui.label(egui::RichText::new("Simulation").small().strong());
             ui.horizontal(|ui| {
                 ui.label("Rule:");
                 egui::ComboBox::from_id_salt("rule_preset")
@@ -121,6 +140,43 @@ impl App {
                             ui.selectable_value(&mut self.skip_generations, n, n.to_string());
                         }
                     });
+
+                ui.separator();
+                ui.label("Speed");
+                ui.add(egui::Slider::new(&mut self.sim.speed, 0.5..=60.0).suffix(" gen/s"));
+
+                ui.separator();
+                ui.label(format!("Gen: {}", self.sim.generation));
+                ui.label(format!("Live: {}", self.sim.live.len()));
+                ui.label(format!("Births: {}", self.sim.last_births))
+                    .on_hover_text("Cells born on the most recent step (or summed over a Skip batch)");
+                ui.label(format!("Deaths: {}", self.sim.last_deaths))
+                    .on_hover_text("Cells that died on the most recent step (or summed over a Skip batch)");
+            });
+
+            ui.separator();
+            ui.label(egui::RichText::new("Board").small().strong());
+            ui.horizontal(|ui| {
+                ui.label("Start:");
+                egui::ComboBox::from_id_salt("start_config")
+                    .selected_text(starts::START_CONFIGS[self.selected_start])
+                    .show_ui(ui, |ui| {
+                        for (idx, name) in starts::START_CONFIGS.iter().enumerate() {
+                            ui.selectable_value(&mut self.selected_start, idx, *name);
+                        }
+                    });
+                if ui
+                    .button("Load")
+                    .on_hover_text("Clear the board and lay out the selected starting configuration")
+                    .clicked()
+                {
+                    let center = ((WORLD_MIN.0 + WORLD_MAX.0) / 2, (WORLD_MIN.1 + WORLD_MAX.1) / 2);
+                    starts::apply(&mut self.sim, starts::START_CONFIGS[self.selected_start], &self.library, center, self.random_density);
+                    self.selected_pattern = None;
+                    self.view.center_on(center, self.canvas_size);
+                }
+
+                ui.separator();
                 if ui.button("Clear").on_hover_text("Erase every live cell").clicked() {
                     self.sim.clear();
                 }
@@ -132,23 +188,27 @@ impl App {
                     let (min, max) = self.view.visible_bounds(ui.available_size().max(Vec2::new(400.0, 400.0)));
                     self.sim.randomize(min, max, self.random_density);
                 }
+                ui.add(egui::Slider::new(&mut self.random_density, 0.05..=0.9).text("density"));
 
                 ui.separator();
-                ui.label("Speed");
-                ui.add(egui::Slider::new(&mut self.sim.speed, 0.5..=60.0).suffix(" gen/s"));
+                if ui.selectable_label(!self.eraser_mode, "Draw").on_hover_text("Click/drag to toggle or paint cells").clicked() {
+                    self.eraser_mode = false;
+                }
+                if ui
+                    .selectable_label(self.eraser_mode, "Eraser")
+                    .on_hover_text("Click/drag to remove cells (goma de borrar)")
+                    .clicked()
+                {
+                    self.eraser_mode = true;
+                    self.selected_pattern = None;
+                }
 
                 ui.separator();
                 ui.checkbox(&mut self.show_grid, "Show grid");
-
-                ui.separator();
-                ui.label(format!("Gen: {}", self.sim.generation));
-                ui.label(format!("Live: {}", self.sim.live.len()));
-                ui.label(format!("Births: {}", self.sim.last_births))
-                    .on_hover_text("Cells born on the most recent step (or summed over a Skip batch)");
-                ui.label(format!("Deaths: {}", self.sim.last_deaths))
-                    .on_hover_text("Cells that died on the most recent step (or summed over a Skip batch)");
             });
 
+            ui.separator();
+            ui.label(egui::RichText::new("View").small().strong());
             ui.horizontal(|ui| {
                 // On-screen zoom/pan controls: a reliable fallback for
                 // touchpads whose pinch/scroll gestures the OS/windowing
@@ -199,6 +259,7 @@ impl App {
                     .on_hover_text("Live scroll/zoom/touch values, to diagnose gestures that don't do anything");
             });
 
+            ui.separator();
             ui.horizontal(|ui| {
                 ui.label("Custom rule — Birth:");
                 let mut changed = false;
@@ -253,6 +314,7 @@ impl App {
                                 );
                                 if response.clicked() || label.clicked() {
                                     self.selected_pattern = Some(idx);
+                                    self.eraser_mode = false;
                                 }
                             });
                         }
@@ -365,11 +427,13 @@ impl App {
                     }
                     None => {
                         // Free drawing: press-and-drag paints (or erases) every cell the
-                        // cursor passes over, like a paintbrush.
+                        // cursor passes over, like a paintbrush. When the eraser tool is
+                        // active every stroke removes cells regardless of their state,
+                        // instead of the draw tool's toggle/paint-a-trail behavior.
                         if response.drag_started() {
                             if let Some(pointer) = response.interact_pointer_pos() {
                                 let cell = self.view.screen_to_cell(rect.min, pointer);
-                                let value = !self.sim.live.contains(&cell);
+                                let value = if self.eraser_mode { false } else { !self.sim.live.contains(&cell) };
                                 self.sim.set_cell(cell, value);
                                 self.paint_value = Some(value);
                                 self.last_paint_cell = Some(cell);
@@ -389,7 +453,11 @@ impl App {
                             && let Some(pointer) = response.interact_pointer_pos()
                         {
                             let cell = self.view.screen_to_cell(rect.min, pointer);
-                            self.sim.toggle_cell(cell);
+                            if self.eraser_mode {
+                                self.sim.set_cell(cell, false);
+                            } else {
+                                self.sim.toggle_cell(cell);
+                            }
                         }
                         if response.drag_stopped() {
                             self.paint_value = None;
@@ -448,6 +516,18 @@ impl App {
                         Color32::from_rgba_unmultiplied(255, 255, 255, 100),
                     );
                 }
+            } else if self.eraser_mode
+                && let Some(pointer) = response.hover_pos()
+            {
+                // Eraser cursor: a red outline over the cell it would remove.
+                let cell = self.view.screen_to_cell(rect.min, pointer);
+                let p = self.view.cell_to_screen(rect.min, cell);
+                painter.rect_stroke(
+                    Rect::from_min_size(p, Vec2::splat(cs)),
+                    0.0,
+                    Stroke::new(2.0, Color32::from_rgb(220, 90, 90)),
+                    StrokeKind::Outside,
+                );
             }
 
             // The plane is finite: draw its edge wherever it's on-screen, so

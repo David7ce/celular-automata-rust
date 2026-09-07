@@ -4,6 +4,9 @@ use rand::RngExt;
 
 use crate::rules::RuleSet;
 
+/// A location on the plane. Currently 2D (x, y); see the module-level "3D
+/// migration path" note below for what widening this to (x, y, z) would
+/// touch.
 pub type Cell = (i64, i64);
 
 /// The 2D plane is finite, not infinite: cells outside these bounds can
@@ -13,9 +16,12 @@ pub type Cell = (i64, i64);
 /// bounds already (nothing can insert one outside), so `next_generation`
 /// only needs to filter birth candidates, not survivors.
 ///
-/// Sized to 1920x1080 (16:9), matching a "Full HD" screen's proportions.
-pub const WORLD_MIN: Cell = (-960, -540);
-pub const WORLD_MAX: Cell = (959, 539);
+/// Sized to 480x270 (16:9), a quarter-scale "Full HD" proportion — small
+/// enough that the minimap and Random/Start-configuration fills stay dense
+/// and readable at a glance, while still comfortably fitting every pattern
+/// in the library plus room to run.
+pub const WORLD_MIN: Cell = (-240, -135);
+pub const WORLD_MAX: Cell = (239, 134);
 
 pub fn in_world(cell: Cell) -> bool {
     cell.0 >= WORLD_MIN.0 && cell.0 <= WORLD_MAX.0 && cell.1 >= WORLD_MIN.1 && cell.1 <= WORLD_MAX.1
@@ -204,16 +210,20 @@ impl SimState {
     }
 }
 
+/// The 8 Moore-neighborhood offsets around a 2D cell. Pulled out as a named
+/// constant (rather than an inline nested loop) so a future 3D build can
+/// swap in the 26-offset 3D Moore neighborhood (`dx/dy/dz in -1..=1`, minus
+/// the origin) here alone — `next_generation` itself, `RuleSet` (already
+/// generic over "how many neighbors", 0-8 today), and every other consumer
+/// of `Cell` would be unaffected by that change.
+const NEIGHBOR_OFFSETS: [(i64, i64); 8] =
+    [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
+
 fn next_generation(live: &HashSet<Cell>, rule: &RuleSet) -> HashSet<Cell> {
     let mut counts: HashMap<Cell, u8> = HashMap::with_capacity(live.len() * 4);
     for &(x, y) in live {
-        for dx in -1..=1i64 {
-            for dy in -1..=1i64 {
-                if dx == 0 && dy == 0 {
-                    continue;
-                }
-                *counts.entry((x + dx, y + dy)).or_insert(0) += 1;
-            }
+        for (dx, dy) in NEIGHBOR_OFFSETS {
+            *counts.entry((x + dx, y + dy)).or_insert(0) += 1;
         }
     }
 

@@ -18,12 +18,24 @@ Windows, macOS and Linux from the same codebase.
   long-term random-soup behavior (`stable`, `chaotic`, or `explosive`) in the
   dropdown, e.g. "Diamoeba (chaotic)". Plus 9 Birth / 9 Survive checkboxes to
   build any custom rule by hand.
-- **Finite 1920x1080 plane** (16:9, matching a Full HD screen's
-  proportions): live cells are stored as a `HashSet<(i64, i64)>` bounded to
-  `x ∈ [-960, 959]`, `y ∈ [-540, 539]` (`simulation::WORLD_MIN/WORLD_MAX`) —
-  no wraparound, cells simply can't be painted, stamped, or born past the
-  edge (drawn as a red boundary line on the canvas), stepped with the
-  standard neighbor-counting algorithm (`O(live cells)` per generation).
+- **Finite 480x270 plane** (16:9, a quarter-scale Full HD proportion): live
+  cells are stored as a `HashSet<(i64, i64)>` bounded to `x ∈ [-240, 239]`,
+  `y ∈ [-135, 134]` (`simulation::WORLD_MIN/WORLD_MAX`) — no wraparound,
+  cells simply can't be painted, stamped, or born past the edge (drawn as a
+  red boundary line on the canvas), stepped with the standard
+  neighbor-counting algorithm (`O(live cells)` per generation).
+- **Starting configurations**: a "Start" dropdown + "Load" button (Board
+  row) clears the board and lays out a named setup centered on the world —
+  Empty board, Random soup, Single glider, Gosper glider gun, Acorn,
+  R-pentomino, Diehard, Glider symphony (4 gliders), Pulsar field (3x3).
+  Built from the pattern library's own cell data (`src/starts.rs`), so a fix
+  to a pattern's shape automatically carries through to any start built from
+  it.
+- **Eraser tool**: a Draw/Eraser toggle (Board row) next to the pattern
+  library. Draw is the default click/drag-to-toggle-or-paint behavior;
+  Eraser forces every click or drag stroke to remove cells regardless of
+  their state, with a red outline over the cell it would remove. Selecting
+  a pattern from the library switches back to Draw automatically.
 - **The viewport is always fully inside the map.** Panning/zooming is
   clamped (`View::clamp_to_world`) so the visible rectangle can slide right
   up to an edge but never shows empty space beyond it — you can't scroll
@@ -47,7 +59,7 @@ Windows, macOS and Linux from the same codebase.
   `zoom_delta`/`scroll_delta`/touch values on the canvas for diagnosing any
   gesture that still seems to do nothing.
 - **Speed control**: Play/Pause/Step, generations-per-second slider.
-- **Pattern library**: 28 well-known patterns across 5 categories (still
+- **Pattern library**: 35 well-known patterns across 5 categories (still
   lifes, oscillators, spaceships, guns, methuselahs), decoded from standard
   RLE strings verified against LifeWiki and stamped onto the canvas on
   click. A regression test (`cargo test`) checks every pattern's cell count
@@ -70,6 +82,7 @@ src/
   rules.rs        - RuleSet, named presets, B/S formatting
   patterns.rs     - Pattern/Category, the pattern library definitions
   rle.rs          - minimal RLE decoder (b/o/$/! run-length format)
+  starts.rs       - named starting configurations (Board "Start" dropdown)
   view.rs         - pan/zoom camera, cell<->screen coordinate math
 ```
 
@@ -77,10 +90,12 @@ src/
 
 | Action | Input |
 |---|---|
-| Draw / erase a cell | Left-click |
-| Freehand paint a trail | Left-click-drag (erases instead if the stroke starts on a live cell) |
-| Place a pattern | Select it in the left panel, then click the canvas |
+| Draw / erase a cell | Left-click (Draw tool; erases instead if the stroke starts on a live cell) |
+| Freehand paint a trail | Left-click-drag (Draw tool) |
+| Force-erase cells | Switch to the "Eraser" tool (Board row), then click/drag — always removes, regardless of cell state |
+| Place a pattern | Select it in the left panel, then click the canvas (switches back to the Draw tool) |
 | Cancel pattern placement | Right-click, `Esc`, or the "Cancel" button in the panel |
+| Load a starting configuration | "Start" dropdown + "Load" button (Board row) — clears the board first |
 | Zoom | Pinch gesture (macOS/iOS only — see Known issues), Ctrl + scroll, `+`/`-` keys, or the `-`/slider/`+` controls in the top bar |
 | Pan | Two-finger trackpad drag, arrow keys, the `<`/`^`/`v`/`>` buttons, or click/drag on the minimap |
 | Jump to a distant part of the plane | Click or drag inside the minimap (bottom-right corner) |
@@ -89,7 +104,7 @@ src/
 | Step (by the selected skip amount) | `S`, or the "Step" button |
 | Choose how many generations Step advances | "Skip" dropdown (0, 5, 10, 50, 100, 500, 1000 — 0 behaves as 1) |
 | Clear board | `C`, or the "Clear" button |
-| Fill visible area randomly | `R`, or the "Random" button (density is fixed at 0.35 for now) |
+| Fill visible area randomly | `R`, or the "Random" button (density set by the adjacent slider) |
 | Change generation speed | "Speed" slider (0.5–60 gen/s) |
 | Switch rule preset | "Rule" dropdown (each entry tagged stable/chaotic/explosive) |
 | Build a custom rule | Birth / Survive checkboxes (switches label to "Custom") |

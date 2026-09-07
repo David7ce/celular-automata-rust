@@ -50,6 +50,8 @@ const DEFS: &[Def] = &[
     Def { name: "Tub", category: Category::StillLife, rle: "bob$obo$bo!" },
     Def { name: "Ship", category: Category::StillLife, rle: "2ob$obo$b2o!" },
     Def { name: "Pond", category: Category::StillLife, rle: "b2ob$o2bo$o2bo$b2o!" },
+    Def { name: "Barge", category: Category::StillLife, rle: "bo2b$obob$bobo$2bo!" },
+    Def { name: "Long Boat", category: Category::StillLife, rle: "bo2b$obob$bobo$2b2o!" },
     // Oscillators
     Def { name: "Blinker", category: Category::Oscillator, rle: "3o!" },
     Def { name: "Toad", category: Category::Oscillator, rle: "b3o$3o!" },
@@ -66,6 +68,12 @@ const DEFS: &[Def] = &[
         category: Category::Oscillator,
         rle: "9bo12b$7bobo12b$6bobo13b$2o3bo2bo11b2o$2o4bobo11b2o$7bobo12b$9bo!",
     },
+    Def { name: "Figure Eight", category: Category::Oscillator, rle: "2o4b$2obo2b$4bob$bo4b$2bob2o$4b2o!" },
+    Def {
+        name: "Kok's Galaxy",
+        category: Category::Oscillator,
+        rle: "2bo2bobob$2obob3ob$bo6bo$2o5bob2$bo5b2o$o6bob$b3obob2o$bobo2bo!",
+    },
     // Spaceships
     Def { name: "Glider", category: Category::Spaceship, rle: "bo$2bo$3o!" },
     Def { name: "Lightweight Spaceship", category: Category::Spaceship, rle: "bo2bo$o$o3bo$4o!" },
@@ -75,6 +83,11 @@ const DEFS: &[Def] = &[
         name: "Loafer",
         category: Category::Spaceship,
         rle: "b2o2bob2o$o2bo2b2o$bobo$2bo$8bo$6b3o$5bo$6bo$7b2o!",
+    },
+    Def {
+        name: "Copperhead",
+        category: Category::Spaceship,
+        rle: "b2o2b2o$3b2o$3b2o$obo2bobo$o6bo2$o6bo$b2o2b2o$2b4o2$3b2o$3b2o!",
     },
     // Guns
     Def {
@@ -92,6 +105,8 @@ const DEFS: &[Def] = &[
     Def { name: "Diehard", category: Category::Methuselah, rle: "6bo$2o6b$bo3b3o!" },
     Def { name: "Acorn", category: Category::Methuselah, rle: "bo5b$3bo3b$2o2b3o!" },
     Def { name: "B-heptomino", category: Category::Methuselah, rle: "ob2o$3ob$bo!" },
+    Def { name: "Pi-heptomino", category: Category::Methuselah, rle: "3o$obo$obo!" },
+    Def { name: "Rabbits", category: Category::Methuselah, rle: "o3b3o$3o2bob$bo!" },
 ];
 
 pub fn library() -> Vec<Pattern> {
@@ -123,6 +138,8 @@ mod tests {
             ("Tub", 4),
             ("Ship", 6),
             ("Pond", 8),
+            ("Barge", 6),
+            ("Long Boat", 7),
             ("Blinker", 3),
             ("Toad", 6),
             ("Beacon", 8),
@@ -130,17 +147,22 @@ mod tests {
             ("Pulsar", 48),
             ("Pentadecathlon", 12),
             ("Queen Bee Shuttle", 20),
+            ("Figure Eight", 12),
+            ("Kok's Galaxy", 28),
             ("Glider", 5),
             ("Lightweight Spaceship", 9),
             ("Middleweight Spaceship", 11),
             ("Heavyweight Spaceship", 13),
             ("Loafer", 20),
+            ("Copperhead", 28),
             ("Gosper Glider Gun", 36),
             ("Simkin Glider Gun", 36),
             ("R-pentomino", 5),
             ("Diehard", 7),
             ("Acorn", 7),
             ("B-heptomino", 7),
+            ("Pi-heptomino", 7),
+            ("Rabbits", 9),
         ];
 
         let lib = library();

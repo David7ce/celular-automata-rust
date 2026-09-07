@@ -228,19 +228,101 @@ Two follow-ups on the plane/minimap work above:
   `clamp_centers_an_axis_when_the_viewport_is_wider_than_the_world`) —
   `cargo test` now has 4 tests total, `cargo clippy` still clean.
 
+## Update — 2026-09-07 (smaller map, starting configurations, eraser, 3D-readiness)
+
+A batch of follow-up requests after the 16:9 hard-clamp work above:
+
+- **World shrunk to 480x270** (`x ∈ [-240, 239]`, `y ∈ [-135, 134]`) — a
+  quarter-scale version of the previous 1920x1080, still 16:9. Keeps the
+  minimap and Random/Start fills dense and readable at a glance instead of
+  mostly empty space, while still comfortably fitting every library pattern.
+  `View::clamp_to_world`'s tests read `WORLD_MIN`/`WORLD_MAX` directly so
+  they needed no changes.
+- **Starting configurations** (`src/starts.rs`, new module): a "Start"
+  dropdown + "Load" button in a new "Board" row clears the board and lays
+  out a named setup centered on the world — Empty board, Random soup,
+  Single glider, Gosper glider gun, Acorn, R-pentomino, Diehard, Glider
+  symphony (4 gliders), Pulsar field (3x3). Built by looking up cells from
+  the existing pattern library and stamping them centered via a small
+  bounding-box-midpoint helper, rather than duplicating RLE strings in a
+  second place — a future fix to a pattern's shape (like the Boat/Pulsar/
+  MWSS/HWSS bugs found earlier) automatically carries through to anything
+  built from it.
+- **Pattern library grew from 28 to 35**: Barge, Long Boat (still lifes),
+  Figure Eight, Kok's Galaxy (oscillators), Copperhead (spaceship),
+  Pi-heptomino, Rabbits (methuselahs). Every RLE pulled from copy.sh's
+  mirror (LifeWiki itself 403s direct fetches) and hand-verified by parsing
+  cell counts against documented populations before adding to the
+  regression test — Long Boat (7), Barge (6), Figure Eight (12), Copperhead
+  (28), and Pi-heptomino (7)/Rabbits (9) all matched known LifeWiki figures
+  exactly, which is a good independent confirmation the RLEs were copied
+  correctly.
+- **Eraser tool**: a Draw/Eraser segmented toggle in the Board row.
+  Previously erasing only ever happened implicitly (a paint stroke started
+  on a live cell erased instead of drew) with no way to force-remove cells
+  under a stamped pattern's overlap. Eraser mode makes every click/drag
+  remove cells outright, shows a red outline over the cell it's about to
+  remove, and is mutually exclusive with pattern placement (picking either
+  one turns off the other).
+- **Random-fill density is no longer hardcoded** — a slider next to
+  Clear/Random controls it directly (this closes out item 1 from the old
+  "Next up" list below).
+- **UI reorganized** into labeled "Simulation" / "Board" / "View" row
+  groups (with horizontal separators between them) instead of one dense
+  wall of controls, now that there are Start/Eraser/density controls to fit
+  in alongside everything else.
+- **3D-migration readiness pass**: no functional change, but light
+  refactoring + doc comments at the seams a future 3D version would need to
+  cut along — see "3D migration path" below for what's actually involved.
+
+`cargo test` (4 tests, all still passing after the new pattern-count
+entries), `cargo clippy --all-targets` clean.
+
+## 3D migration path (not scheduled — notes for whenever it's picked up)
+
+The codebase was nudged (not rewritten) to make a future 3D version less of
+a from-scratch rebuild:
+
+- **`simulation.rs`** is dimension-agnostic in spirit already: `Cell` is a
+  type alias (currently `(i64, i64)`), and the neighbor-counting loop was
+  pulled out into a named `NEIGHBOR_OFFSETS: [(i64, i64); 8]` constant
+  specifically so a 3D build can swap in the 26-cell 3D Moore neighborhood
+  (`dx/dy/dz in -1..=1`, minus the origin) in one place. `RuleSet` is
+  already generic over "how many neighbors" as a 0-8 bool array — 3D would
+  widen that to 0-26, no structural change needed.
+- **`app.rs`/`view.rs` are the 2D-specific half** — a `Painter`-based
+  renderer and an orthographic 2D camera (`View { offset, cell_size }`). A
+  3D build would replace these two wholesale with a `wgpu`/`three-d`-based
+  instanced-cube renderer and a real 3D camera (position + orientation +
+  perspective or ortho projection), while `simulation.rs`/`rules.rs` stay
+  untouched apart from the `Cell` widening above.
+- **`patterns.rs`/`rle.rs`** would need a 3D pattern format of some kind
+  (standard RLE has no z-axis) — likely a custom layered-RLE ("z$$" between
+  z-slices) or just plain `Vec<(i32,i32,i32)>` literals for a starting set
+  of 3D patterns, since there's no equivalent of LifeWiki's 2D pattern
+  archive to pull verified 3D ones from.
+- **`starts.rs`** needs no change in shape — it already just stamps
+  `Pattern::cells` centered on a `Cell`; only `Cell`'s width changes.
+- The minimap (currently a 2D top-down `Painter` overlay) would most
+  naturally become a small orthographic inset of the same 3D scene from a
+  fixed top-down camera, rather than a separate drawing path.
+
+None of this was applied speculatively beyond the neighbor-offset
+extraction and these notes — no unused 3D scaffolding, generics, or trait
+abstractions were added, since a real 3D renderer is a large enough
+undertaking that speculative abstractions now would likely just be wrong
+guesses about what the real 3D architecture needs.
+
 ## Next up (priority order)
 
-1. **Random-fill density control.** Currently hardcoded to 0.35 — expose it
-   as a slider next to the "Random" button.
-
-2. **Pattern placement niceties.** Rotate/flip the selected pattern before
+1. **Pattern placement niceties.** Rotate/flip the selected pattern before
    stamping (R / F keys), since guns and spaceships are directional.
 
-3. **Persistence.** Save/load the current board as RLE (export what's
+2. **Persistence.** Save/load the current board as RLE (export what's
    drawn, import a pattern file from disk) — currently patterns only come
    from the built-in library.
 
-4. **Windows/macOS build verification.** Only Linux has actually been
+3. **Windows/macOS build verification.** Only Linux has actually been
    built and run so far. The dependency set (`eframe`, `rand`) is
    cross-platform with no OS-specific code, so this should mostly be a
    matter of running `cargo build --release` on each target and fixing
@@ -248,14 +330,14 @@ Two follow-ups on the plane/minimap work above:
    particular, the pinch/pan gesture path should actually light up, unlike
    on Linux — worth confirming.
 
-5. **Packaging.** Right now it's a raw binary + a hand-written `.desktop`
+4. **Packaging.** Right now it's a raw binary + a hand-written `.desktop`
    file. Consider `cargo-bundle` or `cargo-packager` for a proper
    `.app`/`.exe`/`.AppImage` if this needs to be distributed beyond this
    machine.
 
 ## Nice-to-haves (not scheduled)
 
-- More library patterns per category (currently a representative handful:
-  4 still lifes, 5 oscillators, 4 spaceships, 1 gun, 3 methuselahs).
-- Simkin Glider Gun as a second gun (skipped tonight — didn't want to ship
-  an RLE string for it I couldn't verify from memory).
+- More library patterns per category, especially a second/third gun (only
+  Gosper and Simkin so far).
+- More starting configurations (e.g. a symmetric 4-gun crossfire, a
+  same-rule "known chaotic seed" per preset).
