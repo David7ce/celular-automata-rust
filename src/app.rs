@@ -3,10 +3,12 @@ use eframe::egui::{self, Color32, Key, Pos2, Rect, Sense, Stroke, Vec2};
 use crate::patterns::{self, Category, Pattern};
 use crate::rules;
 use crate::simulation::{Cell, SimState};
-use crate::view::View;
+use crate::view::{View, MAX_CELL_SIZE, MIN_CELL_SIZE};
 
-/// Zoom factor applied per keyboard zoom-shortcut press ('+'/'-').
+/// Zoom factor applied per keyboard/button zoom-shortcut press ('+'/'-').
 const KEY_ZOOM_STEP: f32 = 1.2;
+/// Screen-pixel-equivalent pan distance per keyboard arrow / pan-button press.
+const PAN_STEP: f32 = 60.0;
 /// Options for the "generations to skip" selector next to Step.
 const SKIP_OPTIONS: &[u32] = &[0, 5, 10, 50, 100, 500, 1000];
 
@@ -24,6 +26,9 @@ pub struct App {
     show_grid: bool,
     /// How many generations a single "Step" advances at once (0 behaves as 1).
     skip_generations: u32,
+    /// Canvas size from the last frame, used to anchor button/slider zoom on
+    /// the canvas center (the mouse-based zoom anchors on the cursor instead).
+    canvas_size: Vec2,
 }
 
 impl App {
@@ -45,6 +50,7 @@ impl App {
             last_paint_cell: None,
             show_grid: true,
             skip_generations: 0,
+            canvas_size: Vec2::new(800.0, 600.0),
         }
     }
 }
@@ -122,6 +128,41 @@ impl App {
             });
 
             ui.horizontal(|ui| {
+                // On-screen zoom/pan controls: a fallback for touchpads whose
+                // pinch/scroll gestures aren't recognized as such by the OS.
+                let center = self.canvas_size / 2.0;
+                ui.label("Zoom");
+                if ui.button("-").clicked() {
+                    self.view.zoom(1.0 / KEY_ZOOM_STEP, center);
+                }
+                let mut cell_size = self.view.cell_size;
+                if ui
+                    .add(egui::Slider::new(&mut cell_size, MIN_CELL_SIZE..=MAX_CELL_SIZE).show_value(false))
+                    .changed()
+                {
+                    self.view.zoom(cell_size / self.view.cell_size, center);
+                }
+                if ui.button("+").clicked() {
+                    self.view.zoom(KEY_ZOOM_STEP, center);
+                }
+
+                ui.separator();
+                ui.label("Pan");
+                if ui.button("<").clicked() {
+                    self.view.pan(Vec2::new(PAN_STEP, 0.0));
+                }
+                if ui.button("^").clicked() {
+                    self.view.pan(Vec2::new(0.0, PAN_STEP));
+                }
+                if ui.button("v").clicked() {
+                    self.view.pan(Vec2::new(0.0, -PAN_STEP));
+                }
+                if ui.button(">").clicked() {
+                    self.view.pan(Vec2::new(-PAN_STEP, 0.0));
+                }
+            });
+
+            ui.horizontal(|ui| {
                 ui.label("Custom rule — Birth:");
                 let mut changed = false;
                 for n in 0..=8u8 {
@@ -188,6 +229,7 @@ impl App {
         let ctx = ui.ctx().clone();
         egui::CentralPanel::default().show(ui, |ui| {
             let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
+            self.canvas_size = rect.size();
             let painter = ui.painter_at(rect);
             painter.rect_filled(rect, 0.0, Color32::from_gray(18));
 
@@ -234,6 +276,10 @@ impl App {
                             }
                             Key::Plus | Key::Equals => self.view.zoom(KEY_ZOOM_STEP, rect.size() / 2.0),
                             Key::Minus => self.view.zoom(1.0 / KEY_ZOOM_STEP, rect.size() / 2.0),
+                            Key::ArrowUp => self.view.pan(Vec2::new(0.0, PAN_STEP)),
+                            Key::ArrowDown => self.view.pan(Vec2::new(0.0, -PAN_STEP)),
+                            Key::ArrowLeft => self.view.pan(Vec2::new(PAN_STEP, 0.0)),
+                            Key::ArrowRight => self.view.pan(Vec2::new(-PAN_STEP, 0.0)),
                             _ => {}
                         }
                     }
@@ -379,7 +425,11 @@ fn paint_pattern_preview(painter: &egui::Painter, rect: Rect, cells: &[(i32, i32
     let w = (max_x - min_x + 1) as f32;
     let h = (max_y - min_y + 1) as f32;
     let pad = 4.0;
-    let scale = ((rect.width() - pad * 2.0) / w).min((rect.height() - pad * 2.0) / h).max(1.0);
+    // Fit the pattern's bounding box inside the preview box, shrinking large
+    // patterns (e.g. the 36-wide Gosper Glider Gun) instead of forcing at
+    // least 1px/cell, which used to make them overflow the tiny icon and
+    // look like an unrecognizable blob.
+    let scale = ((rect.width() - pad * 2.0) / w).min((rect.height() - pad * 2.0) / h).clamp(0.3, 6.0);
     let origin = rect.min + Vec2::new(pad, pad);
     for &(x, y) in cells {
         let p = origin + Vec2::new((x - min_x) as f32 * scale, (y - min_y) as f32 * scale);

@@ -24,11 +24,16 @@ Windows, macOS and Linux from the same codebase.
 - **Zoom & pan**: pinch-to-zoom (or Ctrl+scroll) anchored on the cursor/gesture,
   clamped between a min and max cell size; two-finger trackpad drag pans
   freely in any direction, like scrolling a map on a touchscreen — panning
-  and zooming are separate gestures and never fight each other.
+  and zooming are separate gestures and never fight each other. On-screen
+  `-`/slider/`+` zoom controls and `<`/`^`/`v`/`>` pan buttons in the top bar
+  work identically without relying on gesture recognition, for touchpads
+  that don't report pinch/scroll gestures to the app.
 - **Speed control**: Play/Pause/Step, generations-per-second slider.
-- **Pattern library**: a categorized, clickable collection of well-known
-  patterns (still lifes, oscillators, spaceships, guns, methuselahs),
-  decoded from standard RLE strings and stamped onto the canvas on click.
+- **Pattern library**: 28 well-known patterns across 5 categories (still
+  lifes, oscillators, spaceships, guns, methuselahs), decoded from standard
+  RLE strings verified against LifeWiki and stamped onto the canvas on
+  click. A regression test (`cargo test`) checks every pattern's cell count
+  against its documented population.
 - **Freehand drawing**: click a single cell, or press-and-drag to paint (or
   erase, if the stroke starts on a live cell) a trail of cells.
 - **Generation skipping**: a "Skip" dropdown (0/5/10/50/100/500/1000) lets
@@ -58,8 +63,8 @@ src/
 | Freehand paint a trail | Left-click-drag (erases instead if the stroke starts on a live cell) |
 | Place a pattern | Select it in the left panel, then click the canvas |
 | Cancel pattern placement | Right-click, `Esc`, or the "Cancel" button in the panel |
-| Zoom | Pinch gesture, Ctrl + scroll, or `+` / `-` keys |
-| Pan | Two-finger trackpad drag, any direction (like scrolling on a phone/tablet) |
+| Zoom | Pinch gesture, Ctrl + scroll, `+`/`-` keys, or the `-`/slider/`+` controls in the top bar |
+| Pan | Two-finger trackpad drag (any direction), arrow keys, or the `<`/`^`/`v`/`>` buttons in the top bar |
 | Play / Pause | `Space`, or the button in the top bar |
 | Step (by the selected skip amount) | `S`, or the "Step" button |
 | Choose how many generations Step advances | "Skip" dropdown (0, 5, 10, 50, 100, 500, 1000 — 0 behaves as 1) |
