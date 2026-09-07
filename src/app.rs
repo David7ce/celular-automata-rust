@@ -7,6 +7,8 @@ use crate::view::View;
 
 /// Zoom factor applied per keyboard zoom-shortcut press ('+'/'-').
 const KEY_ZOOM_STEP: f32 = 1.2;
+/// Options for the "generations to skip" selector next to Step.
+const SKIP_OPTIONS: &[u32] = &[0, 5, 10, 50, 100, 500, 1000];
 
 pub struct App {
     sim: SimState,
@@ -14,10 +16,14 @@ pub struct App {
     library: Vec<Pattern>,
     selected_pattern: Option<usize>,
     preset_name: &'static str,
+    preset_class: &'static str,
     random_density: f32,
     /// Whether the current drag-paint stroke is drawing (true) or erasing (false).
     paint_value: Option<bool>,
     last_paint_cell: Option<Cell>,
+    show_grid: bool,
+    /// How many generations a single "Step" advances at once (0 behaves as 1).
+    skip_generations: u32,
 }
 
 impl App {
@@ -33,9 +39,12 @@ impl App {
             library: patterns::library(),
             selected_pattern: None,
             preset_name: rules::PRESETS[0].name,
+            preset_class: rules::PRESETS[0].class,
             random_density: 0.35,
             paint_value: None,
             last_paint_cell: None,
+            show_grid: true,
+            skip_generations: 0,
         }
     }
 }
@@ -61,11 +70,13 @@ impl App {
             ui.horizontal(|ui| {
                 ui.label("Rule:");
                 egui::ComboBox::from_id_salt("rule_preset")
-                    .selected_text(self.preset_name)
+                    .selected_text(format!("{} ({})", self.preset_name, self.preset_class))
                     .show_ui(ui, |ui| {
                         for preset in rules::PRESETS {
-                            if ui.selectable_label(self.preset_name == preset.name, preset.name).clicked() {
+                            let label = format!("{} ({})", preset.name, preset.class);
+                            if ui.selectable_label(self.preset_name == preset.name, label).clicked() {
                                 self.preset_name = preset.name;
+                                self.preset_class = preset.class;
                                 self.sim.rule = rules::preset_rule(preset);
                             }
                         }
@@ -78,8 +89,16 @@ impl App {
                     self.sim.running = !self.sim.running;
                 }
                 if ui.button("Step").clicked() {
-                    self.sim.step();
+                    self.sim.step_n(self.skip_generations);
                 }
+                ui.label("Skip");
+                egui::ComboBox::from_id_salt("skip_generations")
+                    .selected_text(self.skip_generations.to_string())
+                    .show_ui(ui, |ui| {
+                        for &n in SKIP_OPTIONS {
+                            ui.selectable_value(&mut self.skip_generations, n, n.to_string());
+                        }
+                    });
                 if ui.button("Clear").clicked() {
                     self.sim.clear();
                 }
@@ -93,8 +112,13 @@ impl App {
                 ui.add(egui::Slider::new(&mut self.sim.speed, 0.5..=60.0).suffix(" gen/s"));
 
                 ui.separator();
+                ui.checkbox(&mut self.show_grid, "Show grid");
+
+                ui.separator();
                 ui.label(format!("Gen: {}", self.sim.generation));
                 ui.label(format!("Live: {}", self.sim.live.len()));
+                ui.label(format!("Births: {}", self.sim.last_births));
+                ui.label(format!("Deaths: {}", self.sim.last_deaths));
             });
 
             ui.horizontal(|ui| {
@@ -117,6 +141,7 @@ impl App {
                 }
                 if changed {
                     self.preset_name = "Custom";
+                    self.preset_class = "custom";
                 }
             });
         });
@@ -201,7 +226,7 @@ impl App {
                         match key {
                             Key::Escape if !repeat => self.selected_pattern = None,
                             Key::Space if !repeat => self.sim.running = !self.sim.running,
-                            Key::S if !repeat => self.sim.step(),
+                            Key::S if !repeat => self.sim.step_n(self.skip_generations),
                             Key::C if !repeat => self.sim.clear(),
                             Key::R if !repeat => {
                                 let (min, max) = self.view.visible_bounds(rect.size());
@@ -267,7 +292,7 @@ impl App {
             let (min, max) = self.view.visible_bounds(rect.size());
             let cs = self.view.cell_size;
 
-            if cs > 4.0 {
+            if self.show_grid && cs > 4.0 {
                 let stroke = Stroke::new(1.0, Color32::from_gray(35));
                 let mut x = min.0;
                 while x <= max.0 {

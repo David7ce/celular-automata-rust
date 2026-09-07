@@ -11,9 +11,13 @@ Windows, macOS and Linux from the same codebase.
   are required for a dead cell to be born, and for a live cell to survive)
   is expressed as a `RuleSet { birth: [bool; 9], survive: [bool; 9] }` and
   evaluated by one generic step function. No rule is hardcoded separately.
-- **Rule presets**: Conway's Life, 2x2, 34 Life, Assimilation, Coagulations,
-  Coral, Day & Night — plus 9 Birth / 9 Survive checkboxes to build any
-  custom rule by hand.
+- **Rule presets**: 22 built-in Life-like rules — Conway's Life, 2x2, 34 Life,
+  Assimilation, Coagulations, Coral, Day & Night, Diamoeba, Flakes, Gnarl,
+  HighLife, Inverse Life, Long Life, Maze, Mazectric, Move, Pseudo Life,
+  Replicator, Seeds, Serviettes, Stains, Walled Cities — each tagged with its
+  long-term random-soup behavior (`stable`, `chaotic`, or `explosive`) in the
+  dropdown, e.g. "Diamoeba (chaotic)". Plus 9 Birth / 9 Survive checkboxes to
+  build any custom rule by hand.
 - **Infinite sparse grid**: live cells are stored as a `HashSet<(i64, i64)>`
   (no board size limit, no wraparound), stepped with the standard
   neighbor-counting algorithm (`O(live cells)` per generation).
@@ -27,6 +31,11 @@ Windows, macOS and Linux from the same codebase.
   decoded from standard RLE strings and stamped onto the canvas on click.
 - **Freehand drawing**: click a single cell, or press-and-drag to paint (or
   erase, if the stroke starts on a live cell) a trail of cells.
+- **Generation skipping**: a "Skip" dropdown (0/5/10/50/100/500/1000) lets
+  Step (or the `S` key) advance several generations at once instead of one.
+- **Live stats**: generation count, live-cell count, and cells born/died on
+  the most recent step (or across a whole skip batch).
+- **Show/hide grid**: checkbox in the top bar, on by default.
 
 ## Project layout
 
@@ -52,12 +61,14 @@ src/
 | Zoom | Pinch gesture, Ctrl + scroll, or `+` / `-` keys |
 | Pan | Two-finger trackpad drag, any direction (like scrolling on a phone/tablet) |
 | Play / Pause | `Space`, or the button in the top bar |
-| Single step | `S`, or the "Step" button |
+| Step (by the selected skip amount) | `S`, or the "Step" button |
+| Choose how many generations Step advances | "Skip" dropdown (0, 5, 10, 50, 100, 500, 1000 — 0 behaves as 1) |
 | Clear board | `C`, or the "Clear" button |
 | Fill visible area randomly | `R`, or the "Random" button (density is fixed at 0.35 for now) |
 | Change generation speed | "Speed" slider (0.5–60 gen/s) |
-| Switch rule preset | "Rule" dropdown |
+| Switch rule preset | "Rule" dropdown (each entry tagged stable/chaotic/explosive) |
 | Build a custom rule | Birth / Survive checkboxes (switches label to "Custom") |
+| Show/hide the grid lines | "Show grid" checkbox (on by default) |
 
 ## Building & running
 

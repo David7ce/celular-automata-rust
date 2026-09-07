@@ -54,6 +54,42 @@ than what's actually on screen. Not independently re-verified by hand under
 heavy load (per the "no testing tonight" instruction from the prior
 session) — worth confirming next time the app is run for a while.
 
+## Update — 2026-09-07 (touchpad-only + rule pack + stats)
+
+Addressed feedback that the user has no mouse, only a touchpad, plus a
+larger feature batch:
+
+- **Rule presets expanded from 7 to 22.** Added Diamoeba, Flakes, Gnarl,
+  HighLife, Inverse Life, Long Life, Maze, Mazectric, Move, Pseudo Life,
+  Replicator, Seeds, Serviettes, Stains, Walled Cities — B/S strings
+  verified against LifeWiki/Wikipedia via web search rather than typed from
+  memory (20 rules is too many to risk misremembering). Every preset
+  (including the original 7) now carries a `class: "stable" | "chaotic" |
+  "explosive"` tag reflecting its documented long-term random-soup behavior,
+  shown in the rule dropdown as e.g. "Diamoeba (chaotic)".
+- **Generation skipping.** New "Skip" dropdown (0/5/10/50/100/500/1000,
+  default 0). Step (button or `S` key) now calls `SimState::step_n`, which
+  runs that many generations in one call and reports total births/deaths
+  across the whole batch — useful for fast-forwarding to see a rule's
+  long-term behavior without waiting through, or rendering, every
+  intermediate generation.
+- **Births/Deaths counters.** `SimState::step` now diffs the live set
+  before/after each generation and stores `last_births`/`last_deaths`;
+  shown in the top bar next to Gen/Live.
+- **Show/hide grid.** Checkbox in the top bar, on by default; grid lines in
+  `central_canvas` are now gated on it (still also requires `cell_size >
+  4.0` as before, so it doesn't force grid lines back on when zoomed out
+  past visibility).
+- Two-finger trackpad panning (added in the update above) already covers
+  the "no mouse" gesture requirement — reconfirmed as the intended way to
+  navigate, no mouse-only interaction was reintroduced.
+
+Not independently re-verified live (per the standing "don't test, it's
+slow in this environment" guidance) — worth a hands-on pass next session,
+especially confirming pinch-zoom and two-finger pan actually arrive as
+`zoom_delta`/`smooth_scroll_delta` events from this specific touchpad/driver
+combination, since gesture routing varies by OS and windowing backend.
+
 ## Next up (priority order)
 
 1. **Random-fill density control.** Currently hardcoded to 0.35 — expose it
@@ -79,8 +115,6 @@ session) — worth confirming next time the app is run for a while.
 
 ## Nice-to-haves (not scheduled)
 
-- More rule presets (Seeds, HighLife, Replicator, etc.) — trivial to add,
-  just another entry in `rules::PRESETS`.
 - More library patterns per category (currently a representative handful:
   4 still lifes, 5 oscillators, 4 spaceships, 1 gun, 3 methuselahs).
 - Simkin Glider Gun as a second gun (skipped tonight — didn't want to ship

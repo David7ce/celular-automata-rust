@@ -26,6 +26,10 @@ pub struct SimState {
     /// Generations per second.
     pub speed: f32,
     pub generation: u64,
+    /// Cells born / that died over the most recent `step()` (or, after
+    /// `step_n`, summed across that whole batch).
+    pub last_births: u64,
+    pub last_deaths: u64,
     accumulator: f32,
 }
 
@@ -38,6 +42,8 @@ impl SimState {
             running: false,
             speed: 8.0,
             generation: 0,
+            last_births: 0,
+            last_deaths: 0,
             accumulator: 0.0,
         }
     }
@@ -93,6 +99,8 @@ impl SimState {
         self.live.clear();
         self.chunks.clear();
         self.generation = 0;
+        self.last_births = 0;
+        self.last_deaths = 0;
         self.accumulator = 0.0;
     }
 
@@ -129,9 +137,27 @@ impl SimState {
     }
 
     pub fn step(&mut self) {
-        self.live = next_generation(&self.live, &self.rule);
+        let next = next_generation(&self.live, &self.rule);
+        self.last_births = next.difference(&self.live).count() as u64;
+        self.last_deaths = self.live.difference(&next).count() as u64;
+        self.live = next;
         self.rebuild_chunks();
         self.generation += 1;
+    }
+
+    /// Advances `n` generations at once (n.max(1)), reporting the total
+    /// births/deaths across the whole batch in `last_births`/`last_deaths`
+    /// rather than just the final generation's.
+    pub fn step_n(&mut self, n: u32) {
+        let mut total_births = 0u64;
+        let mut total_deaths = 0u64;
+        for _ in 0..n.max(1) {
+            self.step();
+            total_births += self.last_births;
+            total_deaths += self.last_deaths;
+        }
+        self.last_births = total_births;
+        self.last_deaths = total_deaths;
     }
 
     /// Advances the simulation according to elapsed time, if running.
