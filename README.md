@@ -18,7 +18,9 @@ Windows, macOS and Linux from the same codebase.
   (no board size limit, no wraparound), stepped with the standard
   neighbor-counting algorithm (`O(live cells)` per generation).
 - **Zoom & pan**: pinch-to-zoom (or Ctrl+scroll) anchored on the cursor/gesture,
-  clamped between a min and max cell size; two-finger trackpad scroll pans.
+  clamped between a min and max cell size; two-finger trackpad drag pans
+  freely in any direction, like scrolling a map on a touchscreen — panning
+  and zooming are separate gestures and never fight each other.
 - **Speed control**: Play/Pause/Step, generations-per-second slider.
 - **Pattern library**: a categorized, clickable collection of well-known
   patterns (still lifes, oscillators, spaceships, guns, methuselahs),
@@ -47,8 +49,8 @@ src/
 | Freehand paint a trail | Left-click-drag (erases instead if the stroke starts on a live cell) |
 | Place a pattern | Select it in the left panel, then click the canvas |
 | Cancel pattern placement | Right-click, `Esc`, or the "Cancel" button in the panel |
-| Zoom | Vertical two-finger trackpad scroll, pinch gesture, or Ctrl + scroll, or `+` / `-` keys |
-| Pan | Horizontal two-finger trackpad scroll |
+| Zoom | Pinch gesture, Ctrl + scroll, or `+` / `-` keys |
+| Pan | Two-finger trackpad drag, any direction (like scrolling on a phone/tablet) |
 | Play / Pause | `Space`, or the button in the top bar |
 | Single step | `S`, or the "Step" button |
 | Clear board | `C`, or the "Clear" button |
@@ -79,10 +81,7 @@ environment so far.
 
 ## Known issues
 
-- **Performance degrades during heavy freehand painting**: the canvas
-  render loop iterates every live cell each frame to filter to the visible
-  viewport (`app.rs`, `central_canvas`), which is `O(live cells)` per
-  frame. A long drag-paint stroke (especially zoomed out, where each pixel
-  of mouse movement covers many cells) combined with the simulation running
-  can grow the live set quickly and make the UI feel like it "corrupts" or
-  freezes momentarily. See the roadmap for planned fixes.
+None currently tracked. (Rendering used to scan every live cell each frame
+to cull to the viewport, which could bog down during heavy freehand
+painting on a large board — fixed by adding a chunked spatial index in
+`SimState`; see `ROADMAP.md` for details.)

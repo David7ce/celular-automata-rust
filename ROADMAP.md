@@ -23,57 +23,56 @@ after painting for a while. Not yet reproduced/diagnosed carefully — see
 ## Update — 2026-09-06 (later)
 
 Added touchpad zoom and keyboard shortcuts:
-- Vertical two-finger trackpad scroll now zooms (anchored on the cursor),
-  horizontal scroll pans. Ctrl+scroll and pinch gesture still zoom too — all
-  three are mutually exclusive at the egui input layer (wheel input routes to
-  either `smooth_scroll_delta` or `zoom_delta`, never both), so there's no
-  double-handling.
 - Keyboard shortcuts: `Esc` cancels pattern placement, `Space` play/pause,
   `S` step, `C` clear, `R` random fill, `+`/`-` zoom in/out (centered).
-- Zoom-via-scroll sensitivity is `SCROLL_ZOOM_SPEED` in `app.rs` (currently
-  0.003) — not yet tuned against real touchpad hardware, may need
-  adjustment.
+
+## Update — 2026-09-07
+
+Reworked touchpad gestures after feedback that scroll-to-zoom felt wrong —
+using vertical scroll for zoom fought with wanting to pan up/down, unlike
+mobile touch behavior. Now:
+- Two-finger trackpad drag always pans, in whichever direction you move your
+  fingers (`smooth_scroll_delta` fed straight into `View::pan`), matching
+  how panning works on a phone/tablet.
+- Zooming is only ever a pinch gesture or Ctrl+scroll (`zoom_delta`),
+  anchored on the pinch center or cursor. This is a distinct egui input
+  channel from trackpad scrolling, so pan and zoom can't fight each other or
+  trigger accidentally from the wrong axis.
+
+## Update — 2026-09-07 (later)
+
+Fixed the painting slowdown from item 1 below: `SimState` now keeps a
+spatial index (`chunks: HashMap<(i64,i64), HashSet<Cell>>`, 32x32-cell
+buckets) alongside `live`, updated incrementally on every insert/remove
+(`toggle_cell`, `set_cell`, `stamp`, `randomize`) and rebuilt once per
+generation in `step`. `central_canvas`'s render loop now calls
+`sim.cells_in_bounds(min, max)`, which only visits chunks overlapping the
+viewport, instead of scanning the entire `live` set every frame. Rendering
+is now `O(visible cells + overlapping chunks)` rather than `O(live cells)`,
+so a long paint stroke or a large live set no longer costs more per frame
+than what's actually on screen. Not independently re-verified by hand under
+heavy load (per the "no testing tonight" instruction from the prior
+session) — worth confirming next time the app is run for a while.
 
 ## Next up (priority order)
 
-1. **Diagnose the painting slowdown/corruption.**
-   - Leading hypothesis: `central_canvas`'s render loop in `app.rs` iterates
-     the *entire* `sim.live` `HashSet` every frame to cull to the visible
-     viewport — that's `O(live cells)`, not `O(visible cells)`. A drag
-     stroke while zoomed out (each pixel of mouse motion covers several
-     grid cells) can grow `live` very fast, and if the sim is also
-     `running` on an explosive rule (Day & Night, Coagulations), the live
-     set can blow up further each generation. The combination could look
-     like freezing, tearing, or an unresponsive window.
-   - To confirm: reproduce with the "Live: N" counter visible (already
-     shown in the top bar) — if N spikes into the hundreds of thousands
-     right before it "corrupts", that confirms it.
-   - Likely fix: index live cells spatially (a coarse grid-of-chunks, or a
-     `BTreeSet`/sorted structure keyed for range queries) so rendering is
-     `O(visible cells)`, not `O(live cells)`. Simpler interim mitigation:
-     cap how many cells a single paint stroke can add per frame, and/or
-     pause simulation stepping while a paint stroke is in progress.
-   - If it turns out to be a rendering/driver glitch instead (visual
-     corruption rather than slowdown), try eframe's `glow` backend instead
-     of the default `wgpu` backend as a quick isolation test.
-
-2. **Random-fill density control.** Currently hardcoded to 0.35 — expose it
+1. **Random-fill density control.** Currently hardcoded to 0.35 — expose it
    as a slider next to the "Random" button.
 
-3. **Pattern placement niceties.** Rotate/flip the selected pattern before
+2. **Pattern placement niceties.** Rotate/flip the selected pattern before
    stamping (R / F keys), since guns and spaceships are directional.
 
-4. **Persistence.** Save/load the current board as RLE (export what's
+3. **Persistence.** Save/load the current board as RLE (export what's
    drawn, import a pattern file from disk) — currently patterns only come
    from the built-in library.
 
-5. **Windows/macOS build verification.** Only Linux has actually been
+4. **Windows/macOS build verification.** Only Linux has actually been
    built and run so far. The dependency set (`eframe`, `rand`) is
    cross-platform with no OS-specific code, so this should mostly be a
    matter of running `cargo build --release` on each target and fixing
    anything that comes up (packaging/icon per OS if desired).
 
-6. **Packaging.** Right now it's a raw binary + a hand-written `.desktop`
+5. **Packaging.** Right now it's a raw binary + a hand-written `.desktop`
    file. Consider `cargo-bundle` or `cargo-packager` for a proper
    `.app`/`.exe`/`.AppImage` if this needs to be distributed beyond this
    machine.

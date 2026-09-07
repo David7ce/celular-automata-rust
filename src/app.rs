@@ -5,8 +5,6 @@ use crate::rules;
 use crate::simulation::{Cell, SimState};
 use crate::view::View;
 
-/// Sensitivity of vertical two-finger touchpad scroll used as a zoom gesture.
-const SCROLL_ZOOM_SPEED: f32 = 0.003;
 /// Zoom factor applied per keyboard zoom-shortcut press ('+'/'-').
 const KEY_ZOOM_STEP: f32 = 1.2;
 
@@ -181,18 +179,13 @@ impl App {
                 self.view.zoom(zoom_delta, anchor);
             }
 
-            // Two-finger trackpad scroll: vertical scroll zooms (anchored on the
-            // cursor), horizontal scroll pans. Mutually exclusive with the
-            // pinch/Ctrl+scroll zoom above — egui routes wheel input to either
-            // `smooth_scroll_delta` or `zoom_delta` depending on the modifier,
-            // never both, so there's no double-handling here.
+            // Two-finger trackpad drag pans freely in both directions, like
+            // scrolling/panning a map on a phone or tablet. Zooming is a
+            // separate, unambiguous gesture (pinch or Ctrl+scroll, handled
+            // above via `zoom_delta`), so panning never fights with zoom.
             let scroll_delta = ctx.input(|i| i.smooth_scroll_delta);
-            if scroll_delta.y != 0.0 {
-                let anchor = pointer_local.unwrap_or(rect.size() / 2.0);
-                self.view.zoom((scroll_delta.y * SCROLL_ZOOM_SPEED).exp(), anchor);
-            }
-            if scroll_delta.x != 0.0 {
-                self.view.pan(Vec2::new(scroll_delta.x, 0.0));
+            if scroll_delta != Vec2::ZERO {
+                self.view.pan(scroll_delta);
             }
 
             // Keyboard shortcuts (ignored while a widget like a text field wants
@@ -290,10 +283,7 @@ impl App {
                 }
             }
 
-            for &(x, y) in &self.sim.live {
-                if x < min.0 || x > max.0 || y < min.1 || y > max.1 {
-                    continue;
-                }
+            for (x, y) in self.sim.cells_in_bounds(min, max) {
                 let p = self.view.cell_to_screen(rect.min, (x, y));
                 painter.rect_filled(
                     Rect::from_min_size(p, Vec2::splat(cs)),
