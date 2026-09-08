@@ -14,7 +14,12 @@ const PAN_STEP: f32 = 60.0;
 const SKIP_OPTIONS: &[u32] = &[0, 5, 10, 50, 100, 500, 1000];
 /// On-screen size of the minimap box, anchored to the canvas's bottom-right
 /// corner with `MINIMAP_MARGIN` of breathing room.
-const MINIMAP_SIZE: Vec2 = Vec2::new(160.0, 160.0);
+/// The world is a 16:9 rectangle (960x540), not a square, so the minimap
+/// must be too — a square box would non-uniformly stretch the map (and
+/// everything drawn on it: the viewport outline, occupied-chunk markers)
+/// to fill it, distorting proportions instead of just showing the whole
+/// plane shrunk down evenly.
+const MINIMAP_SIZE: Vec2 = Vec2::new(160.0, 90.0);
 const MINIMAP_MARGIN: f32 = 12.0;
 
 /// Everything in this file is the *2D renderer*: it turns `SimState`'s cells

@@ -47,9 +47,11 @@ Windows, macOS and Linux from the same codebase.
   itself (very zoomed out on a large window), that axis is centered on the
   map instead.
 - **Minimap**: bottom-right overlay showing the whole plane, a green marker
-  per occupied region, and a yellow outline for the current viewport. Click
-  or drag inside it to jump/pan the camera anywhere on the plane instantly —
-  handy since the plane is much bigger than what's visible at once.
+  per occupied region, and a yellow outline for the current viewport. Sized
+  to the same 16:9 rectangle as the world itself (not a square), so it
+  shows the plane shrunk down evenly instead of stretched. Click or drag
+  inside it to jump/pan the camera anywhere on the plane instantly — handy
+  since the plane is much bigger than what's visible at once.
 - **Zoom & pan**: pinch-to-zoom (or Ctrl+scroll) anchored on the cursor/gesture,
   clamped between a min and max cell size; two-finger trackpad drag pans
   freely in any direction, like scrolling a map on a touchscreen — panning

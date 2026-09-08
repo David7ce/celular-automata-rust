@@ -340,6 +340,19 @@ Two quick follow-ups:
 `cargo test` (4/4) and `cargo clippy --all-targets` clean; full release
 rebuild done.
 
+## Update — 2026-09-08 (later: minimap aspect ratio fix)
+
+The user pointed out (with a screenshot) that the minimap looked wrong —
+the viewport outline didn't fill the box evenly, leaving mismatched gaps.
+Root cause: `MINIMAP_SIZE` was a hardcoded square (`160.0, 160.0`), but the
+world is a 16:9 rectangle (960x540) — `draw_minimap`/`minimap_to_world`
+scale x and y independently (`sx`/`sy`), so a square box non-uniformly
+stretched the map (and everything on it: viewport outline, occupied-chunk
+markers) instead of shrinking it down evenly. Fixed by sizing the minimap
+to the same 16:9 ratio as the world (`160.0, 90.0`), which makes `sx == sy`
+and removes the distortion entirely — no changes needed to the drawing
+logic itself, since it was already generalized to handle any rectangle.
+
 ## Next up (priority order)
 
 1. **Pattern placement niceties.** Rotate/flip the selected pattern before
