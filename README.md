@@ -18,12 +18,16 @@ Windows, macOS and Linux from the same codebase.
   long-term random-soup behavior (`stable`, `chaotic`, or `explosive`) in the
   dropdown, e.g. "Diamoeba (chaotic)". Plus 9 Birth / 9 Survive checkboxes to
   build any custom rule by hand.
-- **Finite 480x270 plane** (16:9, a quarter-scale Full HD proportion): live
-  cells are stored as a `HashSet<(i64, i64)>` bounded to `x ∈ [-240, 239]`,
-  `y ∈ [-135, 134]` (`simulation::WORLD_MIN/WORLD_MAX`) — no wraparound,
+- **Finite 960x540 plane** (16:9, a half-scale Full HD proportion): live
+  cells are stored as a `HashSet<(i64, i64)>` bounded to `x ∈ [-480, 479]`,
+  `y ∈ [-270, 269]` (`simulation::WORLD_MIN/WORLD_MAX`) — no wraparound,
   cells simply can't be painted, stamped, or born past the edge (drawn as a
   red boundary line on the canvas), stepped with the standard
-  neighbor-counting algorithm (`O(live cells)` per generation).
+  neighbor-counting algorithm (`O(live cells)` per generation). The size is
+  an exact multiple of both zoom-range endpoints (`MIN_CELL_SIZE` = 2px and
+  `MAX_CELL_SIZE` = 60px both divide it evenly on both axes), so the world's
+  edge always lines up cleanly with the grid instead of clipping a partial
+  cell at some zoom levels.
 - **Starting configurations**: a "Start" dropdown + "Load" button (Board
   row) clears the board and lays out a named setup centered on the world —
   Empty board, Random soup, Single glider, Gosper glider gun, Acorn,
@@ -58,7 +62,11 @@ Windows, macOS and Linux from the same codebase.
   there, not just a fallback. A "Show input debug" checkbox overlays live
   `zoom_delta`/`scroll_delta`/touch values on the canvas for diagnosing any
   gesture that still seems to do nothing.
-- **Speed control**: Play/Pause/Step, generations-per-second slider.
+- **Speed control**: Play/Pause (▶/⏸)/Step (⏭), generations-per-second
+  slider. Play/Pause, Step, Clear (🗑), Random (🎲), pan (⬅⬆⬇➡), and Reset
+  view (⟲) are icon buttons with hover tooltips spelling out what each one
+  does, using symbols from egui's bundled icon font rather than an added
+  dependency.
 - **Pattern library**: 35 well-known patterns across 5 categories (still
   lifes, oscillators, spaceships, guns, methuselahs), decoded from standard
   RLE strings verified against LifeWiki and stamped onto the canvas on

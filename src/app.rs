@@ -122,12 +122,16 @@ impl App {
 
                 ui.separator();
 
-                if ui.button(if self.sim.running { "Pause" } else { "Play" }).clicked() {
+                if ui
+                    .button(if self.sim.running { "⏸" } else { "▶" })
+                    .on_hover_text(if self.sim.running { "Pause" } else { "Play" })
+                    .clicked()
+                {
                     self.sim.running = !self.sim.running;
                 }
                 if ui
-                    .button("Step")
-                    .on_hover_text("Advance by the Skip amount (1 generation if Skip is 0)")
+                    .button("⏭")
+                    .on_hover_text("Step: advance by the Skip amount (1 generation if Skip is 0)")
                     .clicked()
                 {
                     self.sim.step_n(self.skip_generations);
@@ -177,12 +181,12 @@ impl App {
                 }
 
                 ui.separator();
-                if ui.button("Clear").on_hover_text("Erase every live cell").clicked() {
+                if ui.button("🗑").on_hover_text("Clear: erase every live cell").clicked() {
                     self.sim.clear();
                 }
                 if ui
-                    .button("Random")
-                    .on_hover_text(format!("Fill the visible area at {:.0}% density", self.random_density * 100.0))
+                    .button("🎲")
+                    .on_hover_text(format!("Random: fill the visible area at {:.0}% density", self.random_density * 100.0))
                     .clicked()
                 {
                     let (min, max) = self.view.visible_bounds(ui.available_size().max(Vec2::new(400.0, 400.0)));
@@ -234,21 +238,21 @@ impl App {
 
                 ui.separator();
                 ui.label("Pan");
-                if ui.button("<").on_hover_text("Pan left").clicked() {
+                if ui.button("⬅").on_hover_text("Pan left").clicked() {
                     self.view.pan(Vec2::new(PAN_STEP, 0.0));
                 }
-                if ui.button("^").on_hover_text("Pan up").clicked() {
+                if ui.button("⬆").on_hover_text("Pan up").clicked() {
                     self.view.pan(Vec2::new(0.0, PAN_STEP));
                 }
-                if ui.button("v").on_hover_text("Pan down").clicked() {
+                if ui.button("⬇").on_hover_text("Pan down").clicked() {
                     self.view.pan(Vec2::new(0.0, -PAN_STEP));
                 }
-                if ui.button(">").on_hover_text("Pan right").clicked() {
+                if ui.button("➡").on_hover_text("Pan right").clicked() {
                     self.view.pan(Vec2::new(-PAN_STEP, 0.0));
                 }
                 if ui
-                    .button("Reset view")
-                    .on_hover_text("Recenter on the world and reset zoom")
+                    .button("⟲")
+                    .on_hover_text("Reset view: recenter on the world and reset zoom")
                     .clicked()
                 {
                     self.view = View::default();
@@ -292,7 +296,7 @@ impl App {
             if self.selected_pattern.is_some() {
                 ui.horizontal(|ui| {
                     ui.label("Click canvas to place. ");
-                    if ui.button("Cancel").clicked() {
+                    if ui.button("✖").on_hover_text("Cancel pattern placement").clicked() {
                         self.selected_pattern = None;
                     }
                 });

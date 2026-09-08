@@ -313,6 +313,33 @@ abstractions were added, since a real 3D renderer is a large enough
 undertaking that speculative abstractions now would likely just be wrong
 guesses about what the real 3D architecture needs.
 
+## Update — 2026-09-08 (world sized to zoom multiples, icon buttons)
+
+Two quick follow-ups:
+
+- **World resized again, to 960x540** (`x ∈ [-480, 479]`, `y ∈ [-270, 269]`)
+  — still 16:9 (the requested "1920x1080 aspect ratio format"), and chosen
+  specifically so both axes are an exact integer multiple of
+  `view::MIN_CELL_SIZE` (2px) and `view::MAX_CELL_SIZE` (60px): 480/16 cells
+  wide and 270/9 cells tall at those two zoom extremes respectively. This
+  means the red world-boundary rectangle always lands on a whole-cell grid
+  line at min/max zoom instead of ever clipping a partial cell.
+- **Icon buttons.** Play/Pause (▶/⏸), Step (⏭), Clear (🗑), Random (🎲), the
+  four pan buttons (⬅⬆⬇➡), Reset view (⟲), and the pattern-placement Cancel
+  button (✖) now show a symbol instead of a word, each with an
+  `on_hover_text` tooltip carrying the full label so the meaning is never
+  lost, just deferred to a hover. Verified glyph coverage against the two
+  font files egui bundles by default (`epaint_default_fonts`'s
+  `emoji-icon-font.ttf` and `NotoEmoji-Regular.ttf`, checked via `fc-query
+  --format='%{charset}'`) rather than guessing — one initial choice (✕
+  U+2715) turned out to be missing from both and was swapped for ✖ (U+2716,
+  present in `emoji-icon-font.ttf`) before shipping. Left Zoom -/+, Skip,
+  Start/Load, and Draw/Eraser as text/selectable-labels, since they either
+  are already minimal glyphs or don't have an unambiguous universal icon.
+
+`cargo test` (4/4) and `cargo clippy --all-targets` clean; full release
+rebuild done.
+
 ## Next up (priority order)
 
 1. **Pattern placement niceties.** Rotate/flip the selected pattern before

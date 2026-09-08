@@ -16,12 +16,14 @@ pub type Cell = (i64, i64);
 /// bounds already (nothing can insert one outside), so `next_generation`
 /// only needs to filter birth candidates, not survivors.
 ///
-/// Sized to 480x270 (16:9), a quarter-scale "Full HD" proportion — small
-/// enough that the minimap and Random/Start-configuration fills stay dense
-/// and readable at a glance, while still comfortably fitting every pattern
-/// in the library plus room to run.
-pub const WORLD_MIN: Cell = (-240, -135);
-pub const WORLD_MAX: Cell = (239, 134);
+/// Sized to 960x540 (16:9, half-scale "Full HD" proportion), chosen to be an
+/// exact multiple of the zoom range's endpoints (`view::MIN_CELL_SIZE` = 2px
+/// and `view::MAX_CELL_SIZE` = 60px both divide it evenly on both axes: 480
+/// and 16 cells wide, 270 and 9 cells tall respectively) so the world's edge
+/// lines up cleanly with the grid at every zoom level instead of clipping a
+/// partial cell.
+pub const WORLD_MIN: Cell = (-480, -270);
+pub const WORLD_MAX: Cell = (479, 269);
 
 pub fn in_world(cell: Cell) -> bool {
     cell.0 >= WORLD_MIN.0 && cell.0 <= WORLD_MAX.0 && cell.1 >= WORLD_MIN.1 && cell.1 <= WORLD_MAX.1
