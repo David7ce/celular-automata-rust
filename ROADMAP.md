@@ -353,6 +353,58 @@ to the same 16:9 ratio as the world (`160.0, 90.0`), which makes `sx == sy`
 and removes the distortion entirely — no changes needed to the drawing
 logic itself, since it was already generalized to handle any rectangle.
 
+## Update — 2026-09-10 (Google Maps-style scroll, dynamic minimum zoom)
+
+Two UX requests: make pan/zoom feel like Google Maps, and make the minimum
+zoom level show the whole map (with the minimap's viewport outline fitting
+the box exactly at that point).
+
+**Device-aware scroll.** Previously *all* scrolling (mouse wheel or
+trackpad alike) panned, and zooming was pinch/Ctrl+scroll only — a
+deliberate earlier choice to stop a touchpad's two-finger scroll from
+fighting with zoom (see the 2026-09-07 update above), but it meant a
+regular USB mouse's wheel — which most desktop users expect to zoom, à la
+Google Maps — panned instead. Fixed by reading raw `egui::Event::MouseWheel`
+events directly instead of the pre-merged `smooth_scroll_delta`: each event
+carries a `MouseWheelUnit` egui itself assigns from the underlying
+`winit::event::MouseScrollDelta` — `Line` for a physical wheel's discrete
+notches, `Point` for a trackpad's continuous pixel-precise scrolling
+(confirmed by reading `egui-winit`'s conversion code directly rather than
+guessing). Now:
+- `Line`/`Page` events (mouse wheel) zoom, anchored on the cursor —
+  `KEY_ZOOM_STEP.powf(notches)` per frame, matching the feel of the
+  `+`/`-` buttons.
+- `Point` events (trackpad) pan, preserving the mobile-like two-finger
+  behavior from before.
+- Events carrying Ctrl/Cmd are skipped in this new code, since
+  `zoom_delta()` (unchanged) already handles Ctrl+scroll and pinch
+  gestures.
+
+This required no OS/device detection — the distinction was already present
+in every scroll event, just discarded by the time `smooth_scroll_delta`
+merges everything together.
+
+**Dynamic minimum zoom.** `view::MIN_CELL_SIZE` was a fixed `2.0`, which
+turned out to be *larger* than what's needed to fit the whole 960x540 world
+in a typical window (e.g. an 800px-wide canvas needs ~0.83px/cell to show
+all 960 cells) — so the old fixed floor made it impossible to ever zoom out
+far enough to see the entire map, no matter the window size. Replaced with
+`view::min_cell_size_to_fit_world(canvas_size)`, computed fresh every frame
+from the actual canvas size: `(canvas.x / world_w).min(canvas.y /
+world_h)`, i.e. whichever axis is the tighter fit. `View::zoom` now takes
+this as a parameter instead of reading a constant, and every call site
+(pinch, wheel, keyboard, on-screen buttons/slider) passes the freshly
+computed value. `central_canvas` also re-clamps `cell_size` to this bound
+once per frame (not just inside `zoom()`) so a window *resize* alone — with
+no explicit zoom action — keeps the invariant true; `clamp_to_world`
+(unchanged) then centers whichever axis ends up looser than the world
+(canvas aspect ratio rarely matches the world's exactly). Net effect: you
+can zoom out exactly until the whole map is visible and no further, and at
+that point the minimap's yellow viewport rectangle exactly fills the
+minimap box, since the visible area and the whole world are now the same
+rectangle. Two new unit tests in `view.rs` cover the fit calculation and
+the zoom clamp; all 6 tests pass, `cargo clippy --all-targets` clean.
+
 ## Next up (priority order)
 
 1. **Pattern placement niceties.** Rotate/flip the selected pattern before

@@ -24,10 +24,10 @@ Windows, macOS and Linux from the same codebase.
   cells simply can't be painted, stamped, or born past the edge (drawn as a
   red boundary line on the canvas), stepped with the standard
   neighbor-counting algorithm (`O(live cells)` per generation). The size is
-  an exact multiple of both zoom-range endpoints (`MIN_CELL_SIZE` = 2px and
-  `MAX_CELL_SIZE` = 60px both divide it evenly on both axes), so the world's
-  edge always lines up cleanly with the grid instead of clipping a partial
-  cell at some zoom levels.
+  an exact multiple of both zoom-range endpoints (`view::MAX_CELL_SIZE` =
+  60px, and the dynamic minimum described below both divide it evenly), so
+  the world's edge always lines up cleanly with the grid instead of
+  clipping a partial cell at some zoom levels.
 - **Starting configurations**: a "Start" dropdown + "Load" button (Board
   row) clears the board and lays out a named setup centered on the world —
   Empty board, Random soup, Single glider, Gosper glider gun, Acorn,
@@ -52,18 +52,30 @@ Windows, macOS and Linux from the same codebase.
   shows the plane shrunk down evenly instead of stretched. Click or drag
   inside it to jump/pan the camera anywhere on the plane instantly — handy
   since the plane is much bigger than what's visible at once.
-- **Zoom & pan**: pinch-to-zoom (or Ctrl+scroll) anchored on the cursor/gesture,
-  clamped between a min and max cell size; two-finger trackpad drag pans
-  freely in any direction, like scrolling a map on a touchscreen — panning
-  and zooming are separate gestures and never fight each other. On-screen
-  `-`/slider/`+` zoom controls, `<`/`^`/`v`/`>` pan buttons, and a "Reset
-  view" button in the top bar work identically without relying on gesture
-  recognition — true pinch-to-zoom via a laptop touchpad is a platform
-  limitation on Linux (winit only wires up `PinchGesture`/`PanGesture` on
-  macOS/iOS), so these on-screen controls are the primary way to navigate
-  there, not just a fallback. A "Show input debug" checkbox overlays live
-  `zoom_delta`/`scroll_delta`/touch values on the canvas for diagnosing any
-  gesture that still seems to do nothing.
+- **Zoom & pan, Google Maps-style**: a physical mouse's scroll wheel zooms
+  in/out anchored on the cursor, exactly like scrolling on a Google Maps
+  page; a laptop trackpad's smooth two-finger scroll pans freely in any
+  direction instead, like panning a map on a touchscreen. egui tags every
+  scroll event with which device it came from (a mouse wheel reports
+  discrete "line" steps, a trackpad reports continuous pixel deltas), so
+  the app reads that tag directly rather than merging both into one
+  ambiguous scroll signal — the two devices drive genuinely different,
+  non-conflicting actions. Pinch gestures and Ctrl/Cmd+scroll always zoom
+  regardless of device. On-screen `-`/slider/`+` zoom controls, `⬅⬆⬇➡` pan
+  buttons, and a "Reset view" button in the top bar work identically
+  without relying on gesture recognition — true pinch-to-zoom via a laptop
+  touchpad is a platform limitation on Linux (winit only wires up
+  `PinchGesture`/`PanGesture` on macOS/iOS), so these on-screen controls are
+  the primary way to zoom via touchpad there, not just a fallback. A "Show
+  input debug" checkbox overlays live zoom/scroll/touch values on the
+  canvas for diagnosing any input that still seems to do nothing.
+- **Minimum zoom always shows the whole map** — like Google Maps, you can
+  zoom out until the entire plane is on screen, and no further; the exact
+  cell size that achieves this is computed every frame from the current
+  window size (`view::min_cell_size_to_fit_world`) rather than a fixed
+  constant, so it stays correct across window resizes. At that zoom level
+  the minimap's yellow viewport outline exactly fills the minimap box,
+  since the visible area and the whole world are now the same rectangle.
 - **Speed control**: Play/Pause (▶/⏸)/Step (⏭), generations-per-second
   slider. Play/Pause, Step, Clear (🗑), Random (🎲), pan (⬅⬆⬇➡), and Reset
   view (⟲) are icon buttons with hover tooltips spelling out what each one
@@ -106,8 +118,8 @@ src/
 | Place a pattern | Select it in the left panel, then click the canvas (switches back to the Draw tool) |
 | Cancel pattern placement | Right-click, `Esc`, or the "Cancel" button in the panel |
 | Load a starting configuration | "Start" dropdown + "Load" button (Board row) — clears the board first |
-| Zoom | Pinch gesture (macOS/iOS only — see Known issues), Ctrl + scroll, `+`/`-` keys, or the `-`/slider/`+` controls in the top bar |
-| Pan | Two-finger trackpad drag, arrow keys, the `<`/`^`/`v`/`>` buttons, or click/drag on the minimap |
+| Zoom | Mouse scroll wheel (anchored on the cursor), pinch gesture (macOS/iOS only — see Known issues), Ctrl + scroll, `+`/`-` keys, or the `-`/slider/`+` controls in the top bar |
+| Pan | Two-finger trackpad scroll, arrow keys, the `⬅⬆⬇➡` buttons, or click/drag on the minimap |
 | Jump to a distant part of the plane | Click or drag inside the minimap (bottom-right corner) |
 | Reset the camera | "Reset view" button in the top bar |
 | Play / Pause | `Space`, or the button in the top bar |

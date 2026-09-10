@@ -17,11 +17,13 @@ pub type Cell = (i64, i64);
 /// only needs to filter birth candidates, not survivors.
 ///
 /// Sized to 960x540 (16:9, half-scale "Full HD" proportion), chosen to be an
-/// exact multiple of the zoom range's endpoints (`view::MIN_CELL_SIZE` = 2px
-/// and `view::MAX_CELL_SIZE` = 60px both divide it evenly on both axes: 480
-/// and 16 cells wide, 270 and 9 cells tall respectively) so the world's edge
-/// lines up cleanly with the grid at every zoom level instead of clipping a
-/// partial cell.
+/// exact multiple of the max-zoom cell size (`view::MAX_CELL_SIZE` = 60px
+/// divides it evenly on both axes: 16 cells wide, 9 cells tall), so the
+/// world's edge lines up cleanly with the grid at max zoom instead of
+/// clipping a partial cell. The *minimum* zoom (zoomed all the way out) is
+/// dynamic rather than a fixed divisor of this size — see
+/// `view::min_cell_size_to_fit_world`, which always shows the whole map
+/// regardless of window size.
 pub const WORLD_MIN: Cell = (-480, -270);
 pub const WORLD_MAX: Cell = (479, 269);
 

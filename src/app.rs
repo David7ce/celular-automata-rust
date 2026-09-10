@@ -4,7 +4,7 @@ use crate::patterns::{self, Category, Pattern};
 use crate::rules;
 use crate::simulation::{Cell, SimState, CHUNK_SIZE, WORLD_MAX, WORLD_MIN};
 use crate::starts;
-use crate::view::{View, MAX_CELL_SIZE, MIN_CELL_SIZE};
+use crate::view::{self, View, MAX_CELL_SIZE};
 
 /// Zoom factor applied per keyboard/button zoom-shortcut press ('+'/'-').
 const KEY_ZOOM_STEP: f32 = 1.2;
@@ -224,20 +224,21 @@ impl App {
                 // layer doesn't deliver to the app (this is a real
                 // limitation on Linux — see ROADMAP.md).
                 let center = self.canvas_size / 2.0;
+                let min_cell_size = view::min_cell_size_to_fit_world(self.canvas_size);
                 ui.label("Zoom");
                 if ui.button("-").on_hover_text("Zoom out").clicked() {
-                    self.view.zoom(1.0 / KEY_ZOOM_STEP, center);
+                    self.view.zoom(1.0 / KEY_ZOOM_STEP, center, min_cell_size);
                 }
                 let mut cell_size = self.view.cell_size;
                 if ui
-                    .add(egui::Slider::new(&mut cell_size, MIN_CELL_SIZE..=MAX_CELL_SIZE).show_value(false))
-                    .on_hover_text("Zoom level")
+                    .add(egui::Slider::new(&mut cell_size, min_cell_size..=MAX_CELL_SIZE).show_value(false))
+                    .on_hover_text("Zoom level (fully left shows the whole map, like Google Maps' minimum zoom)")
                     .changed()
                 {
-                    self.view.zoom(cell_size / self.view.cell_size, center);
+                    self.view.zoom(cell_size / self.view.cell_size, center, min_cell_size);
                 }
                 if ui.button("+").on_hover_text("Zoom in").clicked() {
-                    self.view.zoom(KEY_ZOOM_STEP, center);
+                    self.view.zoom(KEY_ZOOM_STEP, center, min_cell_size);
                 }
                 ui.label(format!("{:.0}px/cell", self.view.cell_size));
 
@@ -342,25 +343,52 @@ impl App {
             painter.rect_filled(rect, 0.0, Color32::from_gray(18));
 
             let pointer_local = response.hover_pos().map(|p| p - rect.min);
+            let min_cell_size = view::min_cell_size_to_fit_world(self.canvas_size);
+            let zoom_anchor = ctx
+                .input(|i| i.multi_touch())
+                .map(|t| t.center_pos - rect.min)
+                .or(pointer_local)
+                .unwrap_or(rect.size() / 2.0);
 
             // Pinch-to-zoom (touch pinch or ctrl+scroll), anchored on the gesture/pointer.
             let zoom_delta = ctx.input(|i| i.zoom_delta());
             if zoom_delta != 1.0 {
-                let anchor = ctx
-                    .input(|i| i.multi_touch())
-                    .map(|t| t.center_pos - rect.min)
-                    .or(pointer_local)
-                    .unwrap_or(rect.size() / 2.0);
-                self.view.zoom(zoom_delta, anchor);
+                self.view.zoom(zoom_delta, zoom_anchor, min_cell_size);
             }
 
-            // Two-finger trackpad drag pans freely in both directions, like
-            // scrolling/panning a map on a phone or tablet. Zooming is a
-            // separate, unambiguous gesture (pinch or Ctrl+scroll, handled
-            // above via `zoom_delta`), so panning never fights with zoom.
-            let scroll_delta = ctx.input(|i| i.smooth_scroll_delta);
-            if scroll_delta != Vec2::ZERO {
-                self.view.pan(scroll_delta);
+            // Device-aware scroll, like a desktop map app: a physical mouse
+            // wheel (discrete "line" steps) zooms anchored on the cursor —
+            // the classic Google Maps behavior — while a trackpad's smooth,
+            // continuous scrolling pans freely in both directions, like
+            // panning a map on a phone or tablet. egui tags every scroll
+            // event with which of these it came from (`MouseWheelUnit`), so
+            // reading raw events instead of the pre-merged `scroll_delta`
+            // lets the two devices drive genuinely different actions instead
+            // of fighting over one. Ctrl/Cmd+scroll is left alone here since
+            // `zoom_delta` above already handles it.
+            let mut line_wheel_notches = 0.0f32;
+            let mut trackpad_pan_delta = Vec2::ZERO;
+            ctx.input(|i| {
+                for event in &i.events {
+                    let &egui::Event::MouseWheel { unit, delta, modifiers, .. } = event else {
+                        continue;
+                    };
+                    if modifiers.ctrl || modifiers.command || modifiers.mac_cmd {
+                        continue;
+                    }
+                    match unit {
+                        egui::MouseWheelUnit::Line | egui::MouseWheelUnit::Page => {
+                            line_wheel_notches += if delta.y != 0.0 { delta.y } else { delta.x };
+                        }
+                        egui::MouseWheelUnit::Point => trackpad_pan_delta += delta,
+                    }
+                }
+            });
+            if line_wheel_notches != 0.0 {
+                self.view.zoom(KEY_ZOOM_STEP.powf(line_wheel_notches), zoom_anchor, min_cell_size);
+            }
+            if trackpad_pan_delta != Vec2::ZERO {
+                self.view.pan(trackpad_pan_delta);
             }
             let touch_count = ctx.input(|i| i.multi_touch().map_or(0, |t| t.num_touches));
 
@@ -383,8 +411,8 @@ impl App {
                                 let (min, max) = self.view.visible_bounds(rect.size());
                                 self.sim.randomize(min, max, self.random_density);
                             }
-                            Key::Plus | Key::Equals => self.view.zoom(KEY_ZOOM_STEP, rect.size() / 2.0),
-                            Key::Minus => self.view.zoom(1.0 / KEY_ZOOM_STEP, rect.size() / 2.0),
+                            Key::Plus | Key::Equals => self.view.zoom(KEY_ZOOM_STEP, rect.size() / 2.0, min_cell_size),
+                            Key::Minus => self.view.zoom(1.0 / KEY_ZOOM_STEP, rect.size() / 2.0, min_cell_size),
                             Key::ArrowUp => self.view.pan(Vec2::new(0.0, PAN_STEP)),
                             Key::ArrowDown => self.view.pan(Vec2::new(0.0, -PAN_STEP)),
                             Key::ArrowLeft => self.view.pan(Vec2::new(PAN_STEP, 0.0)),
@@ -481,7 +509,15 @@ impl App {
 
             // Applied once per frame, after every pan/zoom input this frame
             // (mouse, keyboard, on-screen buttons/slider, minimap) has had
-            // its say: keeps the viewport fully inside the world borders.
+            // its say. Re-clamping `cell_size` here (not just in `zoom()`)
+            // covers window resizes too: if the canvas grows, `min_cell_size`
+            // grows with it, and a `cell_size` that was previously exactly
+            // at the "whole map visible" floor needs to grow to match —
+            // otherwise resizing the window larger would let more than the
+            // whole map show, breaking the "minimum zoom = whole map"
+            // invariant. `clamp_to_world` then keeps the viewport fully
+            // inside the world borders.
+            self.view.cell_size = self.view.cell_size.clamp(min_cell_size.min(MAX_CELL_SIZE), MAX_CELL_SIZE);
             self.view.clamp_to_world(self.canvas_size);
 
             let (min, max) = self.view.visible_bounds(rect.size());
@@ -554,11 +590,11 @@ impl App {
 
             if self.show_input_debug {
                 let text = format!(
-                    "zoom_delta={zoom_delta:.4}\nscroll_delta=({:.1}, {:.1})\ntouches={touch_count}\ncell_size={cs:.1}",
-                    scroll_delta.x, scroll_delta.y,
+                    "zoom_delta={zoom_delta:.4}\nline_wheel={line_wheel_notches:.2} (mouse -> zoom)\ntrackpad_pan=({:.1}, {:.1})\ntouches={touch_count}\ncell_size={cs:.1} (min {min_cell_size:.2})",
+                    trackpad_pan_delta.x, trackpad_pan_delta.y,
                 );
                 painter.rect_filled(
-                    Rect::from_min_size(rect.min + Vec2::splat(8.0), Vec2::new(220.0, 70.0)),
+                    Rect::from_min_size(rect.min + Vec2::splat(8.0), Vec2::new(260.0, 84.0)),
                     4.0,
                     Color32::from_black_alpha(200),
                 );
