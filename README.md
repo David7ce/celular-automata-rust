@@ -35,11 +35,24 @@ Windows, macOS and Linux from the same codebase.
   Built from the pattern library's own cell data (`src/starts.rs`), so a fix
   to a pattern's shape automatically carries through to any start built from
   it.
-- **Eraser tool**: a Draw/Eraser toggle (Board row) next to the pattern
-  library. Draw is the default click/drag-to-toggle-or-paint behavior;
-  Eraser forces every click or drag stroke to remove cells regardless of
-  their state, with a red outline over the cell it would remove. Selecting
-  a pattern from the library switches back to Draw automatically.
+- **Three-way toolbox** (Board row): Draw / Pan / Eraser, mutually
+  exclusive. Draw is the default click/drag-to-toggle-or-paint behavior.
+  Pan makes left-click-drag move the map directly under the cursor — the
+  classic Google Maps drag-to-pan gesture, on its own tool since the
+  primary button is otherwise needed for drawing (cursor turns into a
+  hand/grab icon while active). Eraser forces every click or drag stroke to
+  remove cells regardless of their state, with a red outline over the cell
+  it would remove. Selecting a pattern from the library switches back to
+  Draw automatically. Independent of which tool is active, a middle-mouse-
+  button drag always pans too (the Blender/Photoshop/Figma convention), so
+  panning is never more than one button away regardless of tool.
+- **Collapsible bars**: a "☰" button (top-left) slides the pattern-library
+  panel off-screen, and a "⚙" button collapses the Rule/Board/View/custom-
+  rule rows down to a single essentials strip (Play/Pause, Step, Gen/Live).
+  Both toggle back the same way. Since the top and side bars otherwise eat
+  into the window before the canvas ever gets to show the world's actual
+  16:9 shape, collapsing either or both gives the map noticeably more room
+  and a truer aspect ratio, without needing to resize the window.
 - **The viewport is always fully inside the map.** Panning/zooming is
   clamped (`View::clamp_to_world`) so the visible rectangle can slide right
   up to an edge but never shows empty space beyond it — you can't scroll
@@ -119,7 +132,9 @@ src/
 | Cancel pattern placement | Right-click, `Esc`, or the "Cancel" button in the panel |
 | Load a starting configuration | "Start" dropdown + "Load" button (Board row) — clears the board first |
 | Zoom | Mouse scroll wheel (anchored on the cursor), pinch gesture (macOS/iOS only — see Known issues), Ctrl + scroll, `+`/`-` keys, or the `-`/slider/`+` controls in the top bar |
-| Pan | Two-finger trackpad scroll, arrow keys, the `⬅⬆⬇➡` buttons, or click/drag on the minimap |
+| Pan by dragging the map | Switch to the "Pan" tool (Board row), then left-click-drag — like Google Maps. Or middle-click-drag with any tool active |
+| Pan (other ways) | Two-finger trackpad scroll, arrow keys, the `⬅⬆⬇➡` buttons, or click/drag on the minimap |
+| Reclaim canvas space | "☰" button (top-left) hides the pattern library; "⚙" collapses the Rule/Board/View rows |
 | Jump to a distant part of the plane | Click or drag inside the minimap (bottom-right corner) |
 | Reset the camera | "Reset view" button in the top bar |
 | Play / Pause | `Space`, or the button in the top bar |

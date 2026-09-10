@@ -22,6 +22,21 @@ const SKIP_OPTIONS: &[u32] = &[0, 5, 10, 50, 100, 500, 1000];
 const MINIMAP_SIZE: Vec2 = Vec2::new(160.0, 90.0);
 const MINIMAP_MARGIN: f32 = 12.0;
 
+/// Which action a left-click/drag on the canvas performs. Mutually
+/// exclusive, like a toolbox — picking one always turns off the others.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tool {
+    /// Click toggles a cell, drag paints (or erases, if the stroke starts on
+    /// a live cell) a trail.
+    Draw,
+    /// Click-and-drag pans the view, like grabbing and dragging a map — the
+    /// same gesture Google Maps uses on desktop. A separate tool from Draw
+    /// because the primary mouse button is already spoken for by drawing.
+    Pan,
+    /// Click/drag always removes cells, regardless of their state.
+    Eraser,
+}
+
 /// Everything in this file is the *2D renderer*: it turns `SimState`'s cells
 /// and `View`'s camera into `egui::Painter` calls, and turns pointer/keyboard
 /// input into `View`/`SimState` mutations. It deliberately never reaches
@@ -45,10 +60,9 @@ pub struct App {
     show_grid: bool,
     /// How many generations a single "Step" advances at once (0 behaves as 1).
     skip_generations: u32,
-    /// Eraser tool: when on, click/drag always removes cells (instead of the
-    /// default draw tool's toggle/paint-a-trail behavior) and pattern
-    /// placement is disabled, mutually exclusive with `selected_pattern`.
-    eraser_mode: bool,
+    /// Which action left-click/drag performs on the canvas (draw/pan/erase).
+    /// Selecting a pattern from the library always resets this to `Draw`.
+    tool: Tool,
     /// Index into `starts::START_CONFIGS`, the "Start" dropdown's selection.
     selected_start: usize,
     /// Canvas size from the last frame, used to anchor button/slider zoom on
@@ -57,9 +71,20 @@ pub struct App {
     /// Whether an in-progress drag started inside the minimap (so it keeps
     /// steering the camera even if the pointer strays outside the box).
     dragging_minimap: bool,
+    /// Whether a middle-mouse-button drag-to-pan is in progress (tracked
+    /// explicitly, like `dragging_minimap`, so panning keeps working even if
+    /// the cursor slips off the canvas mid-drag).
+    middle_pan_active: bool,
     /// Shows live gesture/input values in a canvas corner, for diagnosing
     /// touchpad gestures that don't behave as expected on a given machine.
     show_input_debug: bool,
+    /// Whether the pattern-library side panel is expanded — the "☰" button
+    /// toggles this, collapsing it to reclaim canvas width.
+    show_side_panel: bool,
+    /// Whether the Board/View/custom-rule control rows are shown below the
+    /// always-visible essentials — the "⚙" button toggles this, collapsing
+    /// them to reclaim canvas height.
+    show_extra_controls: bool,
 }
 
 impl App {
@@ -81,11 +106,14 @@ impl App {
             last_paint_cell: None,
             show_grid: true,
             skip_generations: 0,
-            eraser_mode: false,
+            tool: Tool::Draw,
             selected_start: 0,
             canvas_size: Vec2::new(800.0, 600.0),
             dragging_minimap: false,
+            middle_pan_active: false,
             show_input_debug: false,
+            show_side_panel: true,
+            show_extra_controls: true,
         }
     }
 }
@@ -108,6 +136,51 @@ impl eframe::App for App {
 impl App {
     fn top_panel(&mut self, ui: &mut egui::Ui) {
         egui::Panel::top("controls").show(ui, |ui| {
+            // Always-visible essentials, regardless of `show_extra_controls`
+            // — includes the two collapse toggles themselves, so the bars
+            // can always be reclaimed for canvas space and always reopened.
+            ui.horizontal(|ui| {
+                if ui
+                    .selectable_label(self.show_side_panel, "☰")
+                    .on_hover_text("Show/hide the pattern library panel")
+                    .clicked()
+                {
+                    self.show_side_panel = !self.show_side_panel;
+                }
+                if ui
+                    .selectable_label(self.show_extra_controls, "⚙")
+                    .on_hover_text("Show/hide rule/board/view settings — collapse both bars to give the map more room")
+                    .clicked()
+                {
+                    self.show_extra_controls = !self.show_extra_controls;
+                }
+
+                ui.separator();
+                if ui
+                    .button(if self.sim.running { "⏸" } else { "▶" })
+                    .on_hover_text(if self.sim.running { "Pause" } else { "Play" })
+                    .clicked()
+                {
+                    self.sim.running = !self.sim.running;
+                }
+                if ui
+                    .button("⏭")
+                    .on_hover_text("Step: advance by the Skip amount (1 generation if Skip is 0)")
+                    .clicked()
+                {
+                    self.sim.step_n(self.skip_generations);
+                }
+
+                ui.separator();
+                ui.label(format!("Gen: {}", self.sim.generation));
+                ui.label(format!("Live: {}", self.sim.live.len()));
+            });
+
+            if !self.show_extra_controls {
+                return;
+            }
+
+            ui.separator();
             ui.label(egui::RichText::new("Simulation").small().strong());
             ui.horizontal(|ui| {
                 ui.label("Rule:");
@@ -126,21 +199,6 @@ impl App {
                 ui.label(self.sim.rule.to_bs_string());
 
                 ui.separator();
-
-                if ui
-                    .button(if self.sim.running { "⏸" } else { "▶" })
-                    .on_hover_text(if self.sim.running { "Pause" } else { "Play" })
-                    .clicked()
-                {
-                    self.sim.running = !self.sim.running;
-                }
-                if ui
-                    .button("⏭")
-                    .on_hover_text("Step: advance by the Skip amount (1 generation if Skip is 0)")
-                    .clicked()
-                {
-                    self.sim.step_n(self.skip_generations);
-                }
                 ui.label("Skip");
                 egui::ComboBox::from_id_salt("skip_generations")
                     .selected_text(self.skip_generations.to_string())
@@ -155,8 +213,6 @@ impl App {
                 ui.add(egui::Slider::new(&mut self.sim.speed, 0.5..=60.0).suffix(" gen/s"));
 
                 ui.separator();
-                ui.label(format!("Gen: {}", self.sim.generation));
-                ui.label(format!("Live: {}", self.sim.live.len()));
                 ui.label(format!("Births: {}", self.sim.last_births))
                     .on_hover_text("Cells born on the most recent step (or summed over a Skip batch)");
                 ui.label(format!("Deaths: {}", self.sim.last_deaths))
@@ -200,15 +256,23 @@ impl App {
                 ui.add(egui::Slider::new(&mut self.random_density, 0.05..=0.9).text("density"));
 
                 ui.separator();
-                if ui.selectable_label(!self.eraser_mode, "Draw").on_hover_text("Click/drag to toggle or paint cells").clicked() {
-                    self.eraser_mode = false;
+                if ui.selectable_label(self.tool == Tool::Draw, "Draw").on_hover_text("Click/drag to toggle or paint cells").clicked() {
+                    self.tool = Tool::Draw;
                 }
                 if ui
-                    .selectable_label(self.eraser_mode, "Eraser")
+                    .selectable_label(self.tool == Tool::Pan, "✋ Pan")
+                    .on_hover_text("Click/drag to pan the view, like dragging a map (Google Maps-style)")
+                    .clicked()
+                {
+                    self.tool = Tool::Pan;
+                    self.selected_pattern = None;
+                }
+                if ui
+                    .selectable_label(self.tool == Tool::Eraser, "Eraser")
                     .on_hover_text("Click/drag to remove cells (goma de borrar)")
                     .clicked()
                 {
-                    self.eraser_mode = true;
+                    self.tool = Tool::Eraser;
                     self.selected_pattern = None;
                 }
 
@@ -297,41 +361,49 @@ impl App {
     }
 
     fn side_panel(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::left("patterns").min_size(220.0).show(ui, |ui| {
-            ui.heading("Pattern Library");
-            if self.selected_pattern.is_some() {
-                ui.horizontal(|ui| {
-                    ui.label("Click canvas to place. ");
-                    if ui.button("✖").on_hover_text("Cancel pattern placement").clicked() {
-                        self.selected_pattern = None;
-                    }
-                });
-            }
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                for category in Category::ALL {
-                    ui.collapsing(category.label(), |ui| {
-                        for (idx, pattern) in self.library.iter().enumerate() {
-                            if pattern.category != category {
-                                continue;
-                            }
-                            ui.horizontal(|ui| {
-                                let (rect, response) =
-                                    ui.allocate_exact_size(Vec2::new(36.0, 36.0), Sense::click());
-                                paint_pattern_preview(ui.painter(), rect, &pattern.cells);
-                                let label = ui.selectable_label(
-                                    self.selected_pattern == Some(idx),
-                                    pattern.name,
-                                );
-                                if response.clicked() || label.clicked() {
-                                    self.selected_pattern = Some(idx);
-                                    self.eraser_mode = false;
-                                }
-                            });
+        // `show_collapsible` slides the panel off toward its edge when
+        // `show_side_panel` is false (toggled by the "☰" button in the top
+        // bar), reclaiming its width for the canvas — the map's aspect
+        // ratio is much easier to actually see with both bars out of the way.
+        egui::Panel::left("patterns").min_size(180.0).default_size(220.0).show_collapsible(
+            ui,
+            &mut self.show_side_panel,
+            |ui| {
+                ui.heading("Pattern Library");
+                if self.selected_pattern.is_some() {
+                    ui.horizontal(|ui| {
+                        ui.label("Click canvas to place. ");
+                        if ui.button("✖").on_hover_text("Cancel pattern placement").clicked() {
+                            self.selected_pattern = None;
                         }
                     });
                 }
-            });
-        });
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for category in Category::ALL {
+                        ui.collapsing(category.label(), |ui| {
+                            for (idx, pattern) in self.library.iter().enumerate() {
+                                if pattern.category != category {
+                                    continue;
+                                }
+                                ui.horizontal(|ui| {
+                                    let (rect, response) =
+                                        ui.allocate_exact_size(Vec2::new(36.0, 36.0), Sense::click());
+                                    paint_pattern_preview(ui.painter(), rect, &pattern.cells);
+                                    let label = ui.selectable_label(
+                                        self.selected_pattern == Some(idx),
+                                        pattern.name,
+                                    );
+                                    if response.clicked() || label.clicked() {
+                                        self.selected_pattern = Some(idx);
+                                        self.tool = Tool::Draw;
+                                    }
+                                });
+                            }
+                        });
+                    }
+                });
+            },
+        );
     }
 
     fn central_canvas(&mut self, ui: &mut egui::Ui) {
@@ -390,6 +462,28 @@ impl App {
             if trackpad_pan_delta != Vec2::ZERO {
                 self.view.pan(trackpad_pan_delta);
             }
+
+            // Middle-mouse-button drag always pans, regardless of the active
+            // tool or whether a pattern is selected — the "hold the wheel
+            // button and drag" convention from Blender/Photoshop/Figma, kept
+            // on a separate button so it never competes with the primary
+            // button's drawing/pattern-placement/Pan-tool duties. Tracked
+            // explicitly (like `dragging_minimap`) so it keeps panning even
+            // if the cursor slips off the canvas mid-drag.
+            if response.hover_pos().is_some() && ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Middle)) {
+                self.middle_pan_active = true;
+            }
+            if self.middle_pan_active {
+                let (delta, still_down) =
+                    ctx.input(|i| (i.pointer.delta(), i.pointer.button_down(egui::PointerButton::Middle)));
+                if delta != Vec2::ZERO {
+                    self.view.pan(delta);
+                }
+                if !still_down {
+                    self.middle_pan_active = false;
+                }
+            }
+
             let touch_count = ctx.input(|i| i.multi_touch().map_or(0, |t| t.num_touches));
 
             // Keyboard shortcuts (ignored while a widget like a text field wants
@@ -462,15 +556,30 @@ impl App {
                             self.sim.stamp(&cells, cell);
                         }
                     }
+                    None if self.tool == Tool::Pan => {
+                        // Google Maps-style click-and-drag panning: the
+                        // primary button, which Draw/Eraser use for
+                        // painting, instead moves the map directly under
+                        // the cursor.
+                        if response.dragged() {
+                            self.view.pan(response.drag_delta());
+                        }
+                        ctx.set_cursor_icon(if response.dragged() {
+                            egui::CursorIcon::Grabbing
+                        } else {
+                            egui::CursorIcon::Grab
+                        });
+                    }
                     None => {
                         // Free drawing: press-and-drag paints (or erases) every cell the
-                        // cursor passes over, like a paintbrush. When the eraser tool is
-                        // active every stroke removes cells regardless of their state,
-                        // instead of the draw tool's toggle/paint-a-trail behavior.
+                        // cursor passes over, like a paintbrush. The Eraser tool forces
+                        // every stroke to remove cells regardless of their state, instead
+                        // of the Draw tool's toggle/paint-a-trail behavior.
+                        let erase = self.tool == Tool::Eraser;
                         if response.drag_started() {
                             if let Some(pointer) = response.interact_pointer_pos() {
                                 let cell = self.view.screen_to_cell(rect.min, pointer);
-                                let value = if self.eraser_mode { false } else { !self.sim.live.contains(&cell) };
+                                let value = if erase { false } else { !self.sim.live.contains(&cell) };
                                 self.sim.set_cell(cell, value);
                                 self.paint_value = Some(value);
                                 self.last_paint_cell = Some(cell);
@@ -490,7 +599,7 @@ impl App {
                             && let Some(pointer) = response.interact_pointer_pos()
                         {
                             let cell = self.view.screen_to_cell(rect.min, pointer);
-                            if self.eraser_mode {
+                            if erase {
                                 self.sim.set_cell(cell, false);
                             } else {
                                 self.sim.toggle_cell(cell);
@@ -561,7 +670,7 @@ impl App {
                         Color32::from_rgba_unmultiplied(255, 255, 255, 100),
                     );
                 }
-            } else if self.eraser_mode
+            } else if self.tool == Tool::Eraser
                 && let Some(pointer) = response.hover_pos()
             {
                 // Eraser cursor: a red outline over the cell it would remove.

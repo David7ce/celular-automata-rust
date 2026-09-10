@@ -405,6 +405,46 @@ minimap box, since the visible area and the whole world are now the same
 rectangle. Two new unit tests in `view.rs` cover the fit calculation and
 the zoom clamp; all 6 tests pass, `cargo clippy --all-targets` clean.
 
+## Update — 2026-09-11 (drag-to-pan, collapsible bars)
+
+The user flagged three related complaints in one message: the top and side
+bars eat into the window before the canvas ever gets to show the world's
+actual 16:9 shape; pan/zoom still didn't feel like Google Maps because
+click-and-drag didn't pan (only scroll/buttons/keys did); and asked for
+"some button" to clean up the interface bars.
+
+**Drag-to-pan.** Added a `Tool` enum (`Draw` / `Pan` / `Eraser`, replacing
+the old bare `eraser_mode: bool`) as a three-way, mutually-exclusive
+toolbox in the Board row. `Pan` makes left-click-drag move the map
+directly under the cursor (`response.drag_delta()` fed straight to
+`View::pan`) — the actual Google Maps gesture, which the app couldn't
+offer before since the primary button was already committed to drawing.
+The cursor switches to a grab/grabbing hand icon (`egui::CursorIcon`) while
+the tool is active, for a clearer affordance. Also added, independent of
+whichever tool is active: a middle-mouse-button drag always pans (tracked
+with its own `middle_pan_active` flag, mirroring the existing
+`dragging_minimap` pattern so it keeps working if the cursor slips off the
+canvas mid-drag) — the same "hold the wheel button" convention used by
+Blender/Photoshop/Figma, so panning is always available without switching
+tools away from Draw/Eraser.
+
+**Collapsible bars.** Two new toggle buttons in the top bar's now
+always-visible essentials strip: "☰" slides the pattern-library panel
+off-screen via egui's `Panel::show_collapsible` (built-in slide animation,
+still reachable by the same button to bring back), and "⚙" collapses
+everything below the essentials strip (Rule/Skip/Speed/stats, the whole
+Board row, the whole View row, the custom-rule checkboxes) down to just
+Play/Pause, Step, and Gen/Live counts. Collapsing either or both gives the
+canvas substantially more room, which is the direct fix for the aspect-
+ratio complaint — the map's actual 16:9 shape (`view::clamp_to_world`
+already renders it undistorted; the issue was never distortion, just how
+little of the window the canvas got once both bars were expanded) is much
+easier to make out with the chrome out of the way.
+
+No new tests needed (no new pure logic beyond `Tool` equality checks and
+straightforward event-driven panning) — `cargo test` still 6/6,
+`cargo clippy --all-targets` clean.
+
 ## Next up (priority order)
 
 1. **Pattern placement niceties.** Rotate/flip the selected pattern before
