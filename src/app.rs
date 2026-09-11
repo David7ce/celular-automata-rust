@@ -256,9 +256,9 @@ impl App {
                     .on_hover_text("Clear the board and lay out the selected starting configuration")
                     .clicked()
                 {
-                    let center = ((WORLD_MIN.0 + WORLD_MAX.0) / 2, (WORLD_MIN.1 + WORLD_MAX.1) / 2);
-                    starts::apply(&mut self.sim, starts::START_CONFIGS[self.selected_start], &self.library, center, self.random_density);
+                    starts::apply(&mut self.sim, starts::START_CONFIGS[self.selected_start], &self.library, self.random_density);
                     self.selected_pattern = None;
+                    let center = ((WORLD_MIN.0 + WORLD_MAX.0) / 2, (WORLD_MIN.1 + WORLD_MAX.1) / 2);
                     self.view.center_on(center, self.canvas_size);
                 }
 
@@ -327,12 +327,18 @@ impl App {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.set_width(220.0);
+                    ui.set_width(240.0);
                     ui.horizontal(|ui| {
                         ui.heading("Pattern Library");
-                        if ui.small_button("✖").on_hover_text("Hide the pattern library").clicked() {
-                            self.show_side_panel = false;
-                        }
+                        // Right-to-left sub-layout pins the close button to
+                        // this row's far right edge (the panel's top-right
+                        // corner), rather than immediately after the heading
+                        // text.
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("✖").on_hover_text("Hide the pattern library").clicked() {
+                                self.show_side_panel = false;
+                            }
+                        });
                     });
                     if self.selected_pattern.is_some() {
                         ui.horizontal(|ui| {
@@ -342,30 +348,42 @@ impl App {
                             }
                         });
                     }
-                    egui::ScrollArea::vertical().max_height((canvas_rect.height() - 100.0).max(120.0)).show(ui, |ui| {
-                        for category in Category::ALL {
-                            ui.collapsing(category.label(), |ui| {
-                                for (idx, pattern) in self.library.iter().enumerate() {
-                                    if pattern.category != category {
-                                        continue;
-                                    }
-                                    ui.horizontal(|ui| {
-                                        let (rect, response) =
-                                            ui.allocate_exact_size(Vec2::new(36.0, 36.0), Sense::click());
-                                        paint_pattern_preview(ui.painter(), rect, &pattern.cells);
-                                        let label = ui.selectable_label(
-                                            self.selected_pattern == Some(idx),
-                                            pattern.name,
-                                        );
-                                        if response.clicked() || label.clicked() {
-                                            self.selected_pattern = Some(idx);
-                                            self.tool = Tool::Draw;
+                    ui.separator();
+                    // `auto_shrink([false, true])`: always claim the full
+                    // panel width (so the scrollbar sits flush at the
+                    // panel's right edge, not hugging the widest row's
+                    // content) while still only growing as tall as the
+                    // (now default-open) categories' content needs, up to
+                    // `max_height` — most of the canvas's height, so the
+                    // library can actually grow to show everything at once
+                    // instead of being capped short.
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, true])
+                        .max_height((canvas_rect.height() - 3.0 * MINIMAP_MARGIN - 70.0).max(240.0))
+                        .show(ui, |ui| {
+                            for category in Category::ALL {
+                                egui::CollapsingHeader::new(category.label()).default_open(true).show(ui, |ui| {
+                                    for (idx, pattern) in self.library.iter().enumerate() {
+                                        if pattern.category != category {
+                                            continue;
                                         }
-                                    });
-                                }
-                            });
-                        }
-                    });
+                                        ui.horizontal(|ui| {
+                                            let (rect, response) =
+                                                ui.allocate_exact_size(Vec2::new(36.0, 36.0), Sense::click());
+                                            paint_pattern_preview(ui.painter(), rect, &pattern.cells);
+                                            let label = ui.selectable_label(
+                                                self.selected_pattern == Some(idx),
+                                                pattern.name,
+                                            );
+                                            if response.clicked() || label.clicked() {
+                                                self.selected_pattern = Some(idx);
+                                                self.tool = Tool::Draw;
+                                            }
+                                        });
+                                    }
+                                });
+                            }
+                        });
                 });
             });
     }
@@ -694,8 +712,13 @@ impl App {
             // deliberate map-style control cluster and stay comfortably
             // clickable at any zoom level.
             let zoom_button_size = Vec2::splat(34.0);
+            // Anchored to the window's bottom-left corner with egui's own
+            // (auto-measured) size, rather than a fixed position computed
+            // from a guessed content height — that guess could drift out of
+            // sync with the actual content and clip off the bottom of the
+            // window on some platform/font combination; anchoring can't.
             egui::Area::new(egui::Id::new("zoom_overlay"))
-                .fixed_pos(Pos2::new(rect.min.x + MINIMAP_MARGIN, rect.max.y - MINIMAP_MARGIN - 168.0))
+                .anchor(egui::Align2::LEFT_BOTTOM, Vec2::new(MINIMAP_MARGIN, -MINIMAP_MARGIN))
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
                     egui::Frame::popup(ui.style()).inner_margin(6.0).show(ui, |ui| {

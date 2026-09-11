@@ -1,60 +1,60 @@
+use rand::RngExt;
+
 use crate::patterns::Pattern;
-use crate::simulation::{Cell, SimState};
+use crate::simulation::{SimState, WORLD_MAX, WORLD_MIN};
 
 /// Named starting layouts the user can load in one action instead of
-/// stamping/painting a fresh board by hand every time. Reuses the pattern
-/// library's cell data rather than duplicating RLE strings here, so a fix to
-/// a pattern's shape automatically applies to any start configuration built
-/// from it.
+/// stamping/painting a fresh board by hand every time. Every option here
+/// (besides "Empty board") is a density-based scatter across the whole
+/// world rather than a single fixed figure or a hardcoded instance count,
+/// so the same density slider that drives "Random soup" also controls how
+/// crowded a "Glider field" or "Pulsar field" comes out. Reuses the pattern
+/// library's cell data rather than duplicating RLE strings here, so a fix
+/// to a pattern's shape automatically applies to any start built from it.
 pub const START_CONFIGS: &[&str] = &[
     "Empty board",
     "Random soup",
-    "Single glider",
-    "Gosper glider gun",
-    "Acorn",
-    "R-pentomino",
-    "Diehard",
-    "Glider symphony (4 gliders)",
-    "Pulsar field (3x3)",
+    "Glider field",
+    "Gosper gun field",
+    "Pulsar field",
 ];
 
-/// Clears the board, then lays out `name` centered on `center` (typically
-/// the world's center cell). `density` only matters for "Random soup".
-pub fn apply(sim: &mut SimState, name: &str, library: &[Pattern], center: Cell, density: f32) {
+/// Clears the board, then lays out `name` across the whole world at
+/// `density`.
+pub fn apply(sim: &mut SimState, name: &str, library: &[Pattern], density: f32) {
     sim.clear();
-    let stamp_centered = |sim: &mut SimState, pattern_name: &str, at: Cell| {
-        if let Some(pattern) = library.iter().find(|p| p.name == pattern_name) {
-            let (cx, cy) = bounding_center(&pattern.cells);
-            sim.stamp(&pattern.cells, (at.0 - cx, at.1 - cy));
-        }
-    };
-
     match name {
-        "Random soup" => {
-            let half = 40;
-            let min = (center.0 - half, center.1 - half);
-            let max = (center.0 + half, center.1 + half);
-            sim.randomize(min, max, density);
-        }
-        "Single glider" => stamp_centered(sim, "Glider", center),
-        "Gosper glider gun" => stamp_centered(sim, "Gosper Glider Gun", center),
-        "Acorn" => stamp_centered(sim, "Acorn", center),
-        "R-pentomino" => stamp_centered(sim, "R-pentomino", center),
-        "Diehard" => stamp_centered(sim, "Diehard", center),
-        "Glider symphony (4 gliders)" => {
-            for (dx, dy) in [(-30, -30), (30, -30), (-30, 30), (30, 30)] {
-                stamp_centered(sim, "Glider", (center.0 + dx, center.1 + dy));
-            }
-        }
-        "Pulsar field (3x3)" => {
-            for row in -1..=1i64 {
-                for col in -1..=1i64 {
-                    stamp_centered(sim, "Pulsar", (center.0 + col * 22, center.1 + row * 22));
-                }
-            }
-        }
+        "Random soup" => sim.randomize(WORLD_MIN, WORLD_MAX, density),
+        "Glider field" => scatter(sim, library, "Glider", 24, density),
+        "Gosper gun field" => scatter(sim, library, "Gosper Glider Gun", 60, density),
+        "Pulsar field" => scatter(sim, library, "Pulsar", 24, density),
         // "Empty board" (or anything unrecognized) just leaves the cleared board.
         _ => {}
+    }
+}
+
+/// Scatters copies of `pattern_name` across the whole world on a lattice of
+/// candidate centers `spacing` cells apart, stamping one at each candidate
+/// independently with probability `density`. `spacing` should be picked per
+/// pattern to keep overlap between neighboring instances rare — roughly the
+/// pattern's own footprint plus margin for spaceships/guns that grow as
+/// they run.
+fn scatter(sim: &mut SimState, library: &[Pattern], pattern_name: &str, spacing: i64, density: f32) {
+    let Some(pattern) = library.iter().find(|p| p.name == pattern_name) else {
+        return;
+    };
+    let (cx, cy) = bounding_center(&pattern.cells);
+    let mut rng = rand::rng();
+    let mut x = WORLD_MIN.0;
+    while x <= WORLD_MAX.0 {
+        let mut y = WORLD_MIN.1;
+        while y <= WORLD_MAX.1 {
+            if rng.random::<f32>() < density {
+                sim.stamp(&pattern.cells, (x - cx, y - cy));
+            }
+            y += spacing;
+        }
+        x += spacing;
     }
 }
 
@@ -69,4 +69,41 @@ fn bounding_center(cells: &[(i32, i32)]) -> (i64, i64) {
         max_y = max_y.max(y);
     }
     (((min_x + max_x) / 2) as i64, ((min_y + max_y) / 2) as i64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::patterns;
+    use crate::rules::RuleSet;
+
+    fn empty_sim_and_library() -> (SimState, Vec<Pattern>) {
+        (SimState::new(RuleSet::from_counts(&[3], &[2, 3])), patterns::library())
+    }
+
+    #[test]
+    fn empty_board_clears_and_places_nothing() {
+        let (mut sim, library) = empty_sim_and_library();
+        sim.stamp(&[(0, 0)], (0, 0));
+        apply(&mut sim, "Empty board", &library, 1.0);
+        assert!(sim.live.is_empty());
+    }
+
+    #[test]
+    fn zero_density_scatter_places_nothing() {
+        let (mut sim, library) = empty_sim_and_library();
+        for name in ["Random soup", "Glider field", "Gosper gun field", "Pulsar field"] {
+            apply(&mut sim, name, &library, 0.0);
+            assert!(sim.live.is_empty(), "{name} at density 0.0 should place nothing");
+        }
+    }
+
+    #[test]
+    fn full_density_scatter_fills_every_lattice_slot() {
+        let (mut sim, library) = empty_sim_and_library();
+        for name in ["Glider field", "Gosper gun field", "Pulsar field"] {
+            apply(&mut sim, name, &library, 1.0);
+            assert!(!sim.live.is_empty(), "{name} at density 1.0 should place something");
+        }
+    }
 }

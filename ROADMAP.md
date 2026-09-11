@@ -538,6 +538,72 @@ necessary things."
 `cargo test` (9/9) and `cargo clippy --all-targets` still clean; full
 release rebuild done.
 
+## Update — 2026-09-12 (density-only starts, taller pattern library, robust overlay positioning)
+
+Follow-up feedback: "make options from start all that have density and
+remove the single figures or forms. Pattern library should be taller and
+grows when opened items and scroll bar in lateral not next to item, also
+close button in corner right. And make canvas wider and less tall when
+rendering in the window 1920x1080 - is it view cutted?"
+
+**Starting configurations are now all density-based scatters.**
+`START_CONFIGS` shrank from 9 to 5: Empty board, Random soup, Glider
+field, Gosper gun field, Pulsar field. Removed everything that placed a
+single fixed instance (Single glider, Acorn, R-pentomino, Diehard) or a
+hardcoded handful (Glider symphony's fixed 4 copies, the old Pulsar
+field's fixed 3x3=9). Replaced with a generic `scatter()` helper in
+`starts.rs`: it walks a lattice of candidate centers spaced across the
+*entire* world (spacing chosen per pattern to keep neighboring instances
+from usually overlapping — 24 cells for Glider/Pulsar, 60 for the much
+bigger Gosper gun) and stamps one copy at each candidate independently
+with probability equal to the same density value the "Random" button's
+slider already exposes. "Random soup" itself was widened from a small
+80x80 box near the world center to the whole world too, for consistency
+with the other options now being true whole-map fills. `starts::apply`
+dropped its now-unused `center: Cell` parameter. 3 new unit tests
+(density 0.0 places nothing, density 1.0 places something, "Empty board"
+clears) — 12 tests total.
+
+**Pattern library overlay improvements**, all in `pattern_library_overlay`:
+- Categories are now `default_open(true)` (previously collapsed), and the
+  panel's `ScrollArea` height budget grew from `canvas_height - 100` to
+  `canvas_height - 3*margin - 70` with a higher floor (240 vs 120) — the
+  panel now visibly grows as more categories' contents are shown, up to
+  nearly the full canvas height, rather than being capped short.
+- `ScrollArea::auto_shrink([false, true])`: the scroll area now always
+  claims the panel's full fixed width, so its scrollbar sits flush at the
+  panel's own right edge instead of hugging whichever row's content
+  happened to be widest.
+- The "✖" close button moved into a `Layout::right_to_left` sub-layout in
+  the heading row, pinning it to the panel's top-right corner instead of
+  sitting immediately after the heading text.
+
+**Zoom overlay's positioning made robust against clipping.** It previously
+used `.fixed_pos(...)` computed from a *guessed* content height (168px) —
+if the actual rendered height ever drifted from that guess (a different
+font, a text-scaling setting, etc.) the overlay's bottom could in
+principle render past the window edge. Switched to
+`.anchor(Align2::LEFT_BOTTOM, offset)`, which lets egui measure the area's
+actual size and position it from the true window corner — this can't
+clip regardless of window size, so nothing is "cut" at 1920x1080 or any
+other resolution. (Investigated directly rather than guessing: confirmed
+`Area::anchor`'s `constrain_rect` defaults to `ctx.content_rect()`, the
+full window content area, by reading `egui`'s source.)
+
+**Default window size widened.** `main.rs`'s initial size changed from
+1100x720 (aspect 1.53) to 1440x810 (aspect 1.78, exactly 16:9) — wider and
+shorter, per the request. Note this doesn't eliminate letterbox/pillarbox
+bars entirely: the top bar still subtracts some height from whatever the
+window's total height is, which makes the *canvas* (window minus top bar)
+slightly wider-than-16:9 relative to the world, so `fit_aspect_rect` will
+still pillarbox a small amount depending on how tall the top bar currently
+is (collapsed vs. expanded) — this is expected letterboxing to preserve
+the map's true, undistorted aspect ratio, not a bug, and collapsing the
+top bar ("⚙") minimizes it.
+
+`cargo test` (12/12) and `cargo clippy --all-targets` clean; release
+rebuild done.
+
 ## Next up (priority order)
 
 1. **Pattern placement niceties.** Rotate/flip the selected pattern before

@@ -29,12 +29,16 @@ Windows, macOS and Linux from the same codebase.
   the world's edge always lines up cleanly with the grid instead of
   clipping a partial cell at some zoom levels.
 - **Starting configurations**: a "Start" dropdown + "Load" button
-  (Simulation row) clears the board and lays out a named setup centered on
-  the world — Empty board, Random soup, Single glider, Gosper glider gun,
-  Acorn, R-pentomino, Diehard, Glider symphony (4 gliders), Pulsar field
-  (3x3). Built from the pattern library's own cell data (`src/starts.rs`),
-  so a fix to a pattern's shape automatically carries through to any start
-  built from it.
+  (Simulation row) clears the board and scatters a named setup across the
+  *whole* world at the same density the "Random"/density slider controls
+  — Empty board, Random soup (individual cells), Glider field, Gosper gun
+  field, Pulsar field. Every option besides Empty board is density-based
+  (a lattice of candidate spots across the map, each independently filled
+  with probability = density) rather than a single fixed figure or a
+  hardcoded instance count, so "how crowded" is always adjustable the same
+  way for every option. Built from the pattern library's own cell data
+  (`src/starts.rs`), so a fix to a pattern's shape automatically carries
+  through to any start built from it.
 - **Three-way toolbox** (top bar, always visible next to Play/Pause/Step):
   Draw / Pan / Eraser, mutually exclusive. Draw is the default
   click/drag-to-toggle-or-paint behavior. Pan makes left-click-drag move
@@ -61,7 +65,12 @@ Windows, macOS and Linux from the same codebase.
   and visible extent stay identical either way. This is most noticeable in
   a maximized/full-screen window: what you see as "the canvas" is always
   the true available area, not something that silently shrinks whenever
-  the library is open.
+  the library is open. Every category is expanded by default, and the
+  panel grows to show them (up to nearly the full canvas height) rather
+  than staying capped short — a lateral scrollbar (pinned to the panel's
+  own right edge, not hugging whichever row happens to be widest) only
+  appears once the expanded content actually overflows that height. Its
+  close button sits in the panel's top-right corner.
 - **The map is always a true, undistorted 16:9 rectangle.** Rather than
   stretching the world to fill whatever oddly-shaped area the canvas
   happens to have (window shape minus whatever the bars still take up),
