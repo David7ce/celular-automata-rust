@@ -46,13 +46,22 @@ Windows, macOS and Linux from the same codebase.
   Draw automatically. Independent of which tool is active, a middle-mouse-
   button drag always pans too (the Blender/Photoshop/Figma convention), so
   panning is never more than one button away regardless of tool.
-- **Collapsible bars**: a "☰" button (top-left) slides the pattern-library
-  panel off-screen, and a "⚙" button collapses the Rule/Board/View/custom-
-  rule rows down to a single essentials strip (Play/Pause, Step, Gen/Live).
-  Both toggle back the same way. Since the top and side bars otherwise eat
-  into the window before the canvas ever gets to show the world's actual
-  16:9 shape, collapsing either or both gives the map noticeably more room
-  and a truer aspect ratio, without needing to resize the window.
+- **Collapsible bars**: a "☰" button (top-left, always visible) slides the
+  pattern-library panel off-screen, and a "⚙" button collapses the
+  Rule/Board/custom-rule rows down to a single essentials strip (the two
+  toggles, Draw/Pan/Eraser, Play/Pause, Step, Gen/Live). Both toggle back
+  the same way, and neither one hides anything canvas navigation actually
+  needs — that's all moved on-canvas (see below), so collapsing both bars
+  fully gives the map maximum room without losing any functionality.
+- **The map is always a true, undistorted 16:9 rectangle.** Rather than
+  stretching the world to fill whatever oddly-shaped area the canvas
+  happens to have (window shape minus whatever the bars still take up),
+  the canvas computes the largest exact-16:9 rectangle that fits inside
+  it (`app::fit_aspect_rect`) and renders the entire map — grid, cells,
+  world boundary, all pointer math — through that rectangle alone, letter-
+  or pillar-boxing whichever axis doesn't match with a plain dark margin.
+  The map's proportions are therefore never distorted or ambiguous
+  regardless of window size or which bars are open.
 - **The viewport is always fully inside the map.** Panning/zooming is
   clamped (`View::clamp_to_world`) so the visible rectangle can slide right
   up to an edge but never shows empty space beyond it — you can't scroll
@@ -74,14 +83,19 @@ Windows, macOS and Linux from the same codebase.
   the app reads that tag directly rather than merging both into one
   ambiguous scroll signal — the two devices drive genuinely different,
   non-conflicting actions. Pinch gestures and Ctrl/Cmd+scroll always zoom
-  regardless of device. On-screen `-`/slider/`+` zoom controls, `⬅⬆⬇➡` pan
-  buttons, and a "Reset view" button in the top bar work identically
-  without relying on gesture recognition — true pinch-to-zoom via a laptop
-  touchpad is a platform limitation on Linux (winit only wires up
-  `PinchGesture`/`PanGesture` on macOS/iOS), so these on-screen controls are
-  the primary way to zoom via touchpad there, not just a fallback. A "Show
-  input debug" checkbox overlays live zoom/scroll/touch values on the
-  canvas for diagnosing any input that still seems to do nothing.
+  regardless of device.
+- **On-canvas zoom control**: a small floating panel in the canvas's
+  bottom-left corner (mirroring the minimap's placement in the opposite
+  corner) with `+`/`-` buttons, a "⟲" reset-view button, and a live
+  "Npx/cell" readout — always present regardless of whether the top bar is
+  expanded or collapsed, and not tied to gesture recognition. True
+  pinch-to-zoom via a laptop touchpad is a platform limitation on Linux
+  (winit only wires up `PinchGesture`/`PanGesture` on macOS/iOS), so this
+  on-canvas control (plus the wheel/Pan-tool/middle-drag panning above) is
+  the primary way to navigate via touchpad there, not just a fallback. A
+  "Show input debug" checkbox (Board row) overlays live zoom/scroll/touch
+  values on the canvas for diagnosing any input that still seems to do
+  nothing.
 - **Minimum zoom always shows the whole map** — like Google Maps, you can
   zoom out until the entire plane is on screen, and no further; the exact
   cell size that achieves this is computed every frame from the current
@@ -90,10 +104,10 @@ Windows, macOS and Linux from the same codebase.
   the minimap's yellow viewport outline exactly fills the minimap box,
   since the visible area and the whole world are now the same rectangle.
 - **Speed control**: Play/Pause (▶/⏸)/Step (⏭), generations-per-second
-  slider. Play/Pause, Step, Clear (🗑), Random (🎲), pan (⬅⬆⬇➡), and Reset
-  view (⟲) are icon buttons with hover tooltips spelling out what each one
-  does, using symbols from egui's bundled icon font rather than an added
-  dependency.
+  slider. Play/Pause, Step, Clear (🗑), Random (🎲), and the on-canvas zoom
+  overlay's buttons are icon buttons with hover tooltips spelling out what
+  each one does, using symbols from egui's bundled icon font rather than an
+  added dependency.
 - **Pattern library**: 35 well-known patterns across 5 categories (still
   lifes, oscillators, spaceships, guns, methuselahs), decoded from standard
   RLE strings verified against LifeWiki and stamped onto the canvas on
@@ -127,16 +141,16 @@ src/
 |---|---|
 | Draw / erase a cell | Left-click (Draw tool; erases instead if the stroke starts on a live cell) |
 | Freehand paint a trail | Left-click-drag (Draw tool) |
-| Force-erase cells | Switch to the "Eraser" tool (Board row), then click/drag — always removes, regardless of cell state |
+| Force-erase cells | Switch to the "Eraser" tool (top bar, always visible), then click/drag — always removes, regardless of cell state |
 | Place a pattern | Select it in the left panel, then click the canvas (switches back to the Draw tool) |
 | Cancel pattern placement | Right-click, `Esc`, or the "Cancel" button in the panel |
 | Load a starting configuration | "Start" dropdown + "Load" button (Board row) — clears the board first |
-| Zoom | Mouse scroll wheel (anchored on the cursor), pinch gesture (macOS/iOS only — see Known issues), Ctrl + scroll, `+`/`-` keys, or the `-`/slider/`+` controls in the top bar |
-| Pan by dragging the map | Switch to the "Pan" tool (Board row), then left-click-drag — like Google Maps. Or middle-click-drag with any tool active |
-| Pan (other ways) | Two-finger trackpad scroll, arrow keys, the `⬅⬆⬇➡` buttons, or click/drag on the minimap |
-| Reclaim canvas space | "☰" button (top-left) hides the pattern library; "⚙" collapses the Rule/Board/View rows |
+| Zoom | Mouse scroll wheel (anchored on the cursor), pinch gesture (macOS/iOS only — see Known issues), Ctrl + scroll, `+`/`-` keys, or the `+`/`-` buttons in the on-canvas zoom overlay (bottom-left) |
+| Pan by dragging the map | Switch to the "Pan" tool (top bar, always visible), then left-click-drag — like Google Maps. Or middle-click-drag with any tool active |
+| Pan (other ways) | Two-finger trackpad scroll, arrow keys, or click/drag on the minimap |
+| Reclaim canvas space | "☰" button (top-left) hides the pattern library; "⚙" collapses the Rule/Board/custom-rule rows |
 | Jump to a distant part of the plane | Click or drag inside the minimap (bottom-right corner) |
-| Reset the camera | "Reset view" button in the top bar |
+| Reset the camera | "⟲" button in the on-canvas zoom overlay (bottom-left) |
 | Play / Pause | `Space`, or the button in the top bar |
 | Step (by the selected skip amount) | `S`, or the "Step" button |
 | Choose how many generations Step advances | "Skip" dropdown (0, 5, 10, 50, 100, 500, 1000 — 0 behaves as 1) |

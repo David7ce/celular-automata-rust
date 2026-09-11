@@ -445,6 +445,56 @@ No new tests needed (no new pure logic beyond `Tool` equality checks and
 straightforward event-driven panning) — `cargo test` still 6/6,
 `cargo clippy --all-targets` clean.
 
+## Update — 2026-09-11 (later: on-canvas zoom, real aspect-ratio fix, Pan discoverability)
+
+Follow-up feedback on the previous round: "put zoom controls on canvas,
+there is no pan always paint, you can remove view layer panel from top,
+and fix aspect ratio map problem."
+
+**The actual aspect-ratio fix.** The earlier "collapsible bars" change
+made more room available but never addressed the real issue: the canvas
+was still whatever oddly-shaped leftover area the window and (uncollapsed)
+bars produced, so the map — even though internally still a correct
+undistorted 16:9 world — only got to fill part of an arbitrarily-shaped
+box. Fixed properly this time: `central_canvas` now computes `map_rect`
+(via a new `fit_aspect_rect` helper) — the largest exact-16:9 rectangle
+that fits centered inside the canvas — and routes every piece of map
+rendering and pointer math (grid lines, cell drawing, ghost/eraser cursor,
+world-boundary rectangle, `screen_to_cell`/`cell_to_screen`, click/drag
+hit-testing) through `map_rect` instead of the raw canvas rect. Whatever
+axis doesn't match gets a plain dark letterbox/pillarbox margin instead of
+stretching or cropping the map. Draw/Eraser/pattern-placement clicks
+outside `map_rect` are now explicitly ignored (they'd previously have
+extrapolated to a technically-valid but visually-nonsensical cell).
+3 new unit tests for `fit_aspect_rect` (pillarbox/letterbox/exact-match
+cases) — 9 tests total, `cargo clippy --all-targets` clean.
+
+**Zoom controls moved onto the canvas.** A small floating `egui::Area` in
+the canvas's bottom-left corner (mirroring the minimap's bottom-right
+placement) now holds `+`/`-`/`⟲` and a live "Npx/cell" readout, always
+present regardless of whether the top bar is expanded or collapsed. The
+old top-bar "View" row (Zoom -/slider/+, `⬅⬆⬇➡` pan buttons, Reset view,
+Show input debug) was removed entirely — the pan buttons were fully
+redundant with the Pan tool, middle-drag, arrow keys, and minimap
+dragging; "Reset view" moved into the new overlay; "Show input debug"
+moved into the Board row next to "Show grid".
+
+**Pan tool discoverability.** The Draw/Pan/Eraser toggle was living in the
+Board row, itself hidden behind the "⚙" collapse toggle — so if extra
+controls were collapsed (or just not immediately found), Pan effectively
+didn't exist, matching the "there is no pan, always paint" report. Moved
+the toggle into the always-visible essentials strip in the top bar
+(alongside Play/Pause/Step), so it's reachable no matter what else is
+collapsed. The Pan tool's actual logic was already correct — the earlier
+build's real problem was that it was too easy not to find, not that the
+code was broken.
+
+**Drive-by fix**: the "Random" fill button computed its fill area from
+`ui.available_size()` — the top bar row's own width, not the canvas's —
+a latent bug now folded in since the app already needed `canvas_size` to
+correctly represent `map_rect` for this same round of work. Now uses
+`self.canvas_size` directly.
+
 ## Next up (priority order)
 
 1. **Pattern placement niceties.** Rotate/flip the selected pattern before

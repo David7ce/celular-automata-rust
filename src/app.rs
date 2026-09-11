@@ -171,6 +171,30 @@ impl App {
                     self.sim.step_n(self.skip_generations);
                 }
 
+                // The tool toggle lives here, always visible (not behind the
+                // "⚙" collapse), since it's a core interaction mode rather
+                // than a setting — it needs to always be reachable.
+                ui.separator();
+                if ui.selectable_label(self.tool == Tool::Draw, "Draw").on_hover_text("Click/drag to toggle or paint cells").clicked() {
+                    self.tool = Tool::Draw;
+                }
+                if ui
+                    .selectable_label(self.tool == Tool::Pan, "✋ Pan")
+                    .on_hover_text("Click/drag to pan the view, like dragging a map (Google Maps-style)")
+                    .clicked()
+                {
+                    self.tool = Tool::Pan;
+                    self.selected_pattern = None;
+                }
+                if ui
+                    .selectable_label(self.tool == Tool::Eraser, "Eraser")
+                    .on_hover_text("Click/drag to remove cells (goma de borrar)")
+                    .clicked()
+                {
+                    self.tool = Tool::Eraser;
+                    self.selected_pattern = None;
+                }
+
                 ui.separator();
                 ui.label(format!("Gen: {}", self.sim.generation));
                 ui.label(format!("Live: {}", self.sim.live.len()));
@@ -250,85 +274,17 @@ impl App {
                     .on_hover_text(format!("Random: fill the visible area at {:.0}% density", self.random_density * 100.0))
                     .clicked()
                 {
-                    let (min, max) = self.view.visible_bounds(ui.available_size().max(Vec2::new(400.0, 400.0)));
+                    // `canvas_size` (one frame stale, like the zoom controls
+                    // above used to be) is the aspect-locked map size, not
+                    // this row's own width — using `ui.available_size()`
+                    // here would fill by the top bar's width, not the map's.
+                    let (min, max) = self.view.visible_bounds(self.canvas_size.max(Vec2::new(400.0, 400.0)));
                     self.sim.randomize(min, max, self.random_density);
                 }
                 ui.add(egui::Slider::new(&mut self.random_density, 0.05..=0.9).text("density"));
 
                 ui.separator();
-                if ui.selectable_label(self.tool == Tool::Draw, "Draw").on_hover_text("Click/drag to toggle or paint cells").clicked() {
-                    self.tool = Tool::Draw;
-                }
-                if ui
-                    .selectable_label(self.tool == Tool::Pan, "✋ Pan")
-                    .on_hover_text("Click/drag to pan the view, like dragging a map (Google Maps-style)")
-                    .clicked()
-                {
-                    self.tool = Tool::Pan;
-                    self.selected_pattern = None;
-                }
-                if ui
-                    .selectable_label(self.tool == Tool::Eraser, "Eraser")
-                    .on_hover_text("Click/drag to remove cells (goma de borrar)")
-                    .clicked()
-                {
-                    self.tool = Tool::Eraser;
-                    self.selected_pattern = None;
-                }
-
-                ui.separator();
                 ui.checkbox(&mut self.show_grid, "Show grid");
-            });
-
-            ui.separator();
-            ui.label(egui::RichText::new("View").small().strong());
-            ui.horizontal(|ui| {
-                // On-screen zoom/pan controls: a reliable fallback for
-                // touchpads whose pinch/scroll gestures the OS/windowing
-                // layer doesn't deliver to the app (this is a real
-                // limitation on Linux — see ROADMAP.md).
-                let center = self.canvas_size / 2.0;
-                let min_cell_size = view::min_cell_size_to_fit_world(self.canvas_size);
-                ui.label("Zoom");
-                if ui.button("-").on_hover_text("Zoom out").clicked() {
-                    self.view.zoom(1.0 / KEY_ZOOM_STEP, center, min_cell_size);
-                }
-                let mut cell_size = self.view.cell_size;
-                if ui
-                    .add(egui::Slider::new(&mut cell_size, min_cell_size..=MAX_CELL_SIZE).show_value(false))
-                    .on_hover_text("Zoom level (fully left shows the whole map, like Google Maps' minimum zoom)")
-                    .changed()
-                {
-                    self.view.zoom(cell_size / self.view.cell_size, center, min_cell_size);
-                }
-                if ui.button("+").on_hover_text("Zoom in").clicked() {
-                    self.view.zoom(KEY_ZOOM_STEP, center, min_cell_size);
-                }
-                ui.label(format!("{:.0}px/cell", self.view.cell_size));
-
-                ui.separator();
-                ui.label("Pan");
-                if ui.button("⬅").on_hover_text("Pan left").clicked() {
-                    self.view.pan(Vec2::new(PAN_STEP, 0.0));
-                }
-                if ui.button("⬆").on_hover_text("Pan up").clicked() {
-                    self.view.pan(Vec2::new(0.0, PAN_STEP));
-                }
-                if ui.button("⬇").on_hover_text("Pan down").clicked() {
-                    self.view.pan(Vec2::new(0.0, -PAN_STEP));
-                }
-                if ui.button("➡").on_hover_text("Pan right").clicked() {
-                    self.view.pan(Vec2::new(-PAN_STEP, 0.0));
-                }
-                if ui
-                    .button("⟲")
-                    .on_hover_text("Reset view: recenter on the world and reset zoom")
-                    .clicked()
-                {
-                    self.view = View::default();
-                }
-
-                ui.separator();
                 ui.checkbox(&mut self.show_input_debug, "Show input debug")
                     .on_hover_text("Live scroll/zoom/touch values, to diagnose gestures that don't do anything");
             });
@@ -410,17 +366,30 @@ impl App {
         let ctx = ui.ctx().clone();
         egui::CentralPanel::default().show(ui, |ui| {
             let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
-            self.canvas_size = rect.size();
+            // The world is a fixed 16:9 rectangle, but the canvas rarely is
+            // (the window's own shape, plus whatever the top/side bars still
+            // take up, decide that) — so `map_rect` is the largest exact-16:9
+            // rectangle that fits centered in `rect`, and everything below
+            // maps screen<->world through it instead of the raw canvas rect.
+            // This is what actually fixes "the map doesn't look 16:9": the
+            // area really is a true, undistorted 16:9 rectangle now, letter/
+            // pillar-boxed within whatever space the canvas has, rather than
+            // stretched or cropped to fit an arbitrary window shape.
+            let world_w = (WORLD_MAX.0 - WORLD_MIN.0 + 1) as f32;
+            let world_h = (WORLD_MAX.1 - WORLD_MIN.1 + 1) as f32;
+            let map_rect = fit_aspect_rect(rect, world_w / world_h);
+            self.canvas_size = map_rect.size();
             let painter = ui.painter_at(rect);
-            painter.rect_filled(rect, 0.0, Color32::from_gray(18));
+            painter.rect_filled(rect, 0.0, Color32::from_gray(10));
+            painter.rect_filled(map_rect, 0.0, Color32::from_gray(18));
 
-            let pointer_local = response.hover_pos().map(|p| p - rect.min);
+            let pointer_local = response.hover_pos().map(|p| p - map_rect.min);
             let min_cell_size = view::min_cell_size_to_fit_world(self.canvas_size);
             let zoom_anchor = ctx
                 .input(|i| i.multi_touch())
-                .map(|t| t.center_pos - rect.min)
+                .map(|t| t.center_pos - map_rect.min)
                 .or(pointer_local)
-                .unwrap_or(rect.size() / 2.0);
+                .unwrap_or(map_rect.size() / 2.0);
 
             // Pinch-to-zoom (touch pinch or ctrl+scroll), anchored on the gesture/pointer.
             let zoom_delta = ctx.input(|i| i.zoom_delta());
@@ -502,11 +471,11 @@ impl App {
                             Key::S if !repeat => self.sim.step_n(self.skip_generations),
                             Key::C if !repeat => self.sim.clear(),
                             Key::R if !repeat => {
-                                let (min, max) = self.view.visible_bounds(rect.size());
+                                let (min, max) = self.view.visible_bounds(map_rect.size());
                                 self.sim.randomize(min, max, self.random_density);
                             }
-                            Key::Plus | Key::Equals => self.view.zoom(KEY_ZOOM_STEP, rect.size() / 2.0, min_cell_size),
-                            Key::Minus => self.view.zoom(1.0 / KEY_ZOOM_STEP, rect.size() / 2.0, min_cell_size),
+                            Key::Plus | Key::Equals => self.view.zoom(KEY_ZOOM_STEP, map_rect.size() / 2.0, min_cell_size),
+                            Key::Minus => self.view.zoom(1.0 / KEY_ZOOM_STEP, map_rect.size() / 2.0, min_cell_size),
                             Key::ArrowUp => self.view.pan(Vec2::new(0.0, PAN_STEP)),
                             Key::ArrowDown => self.view.pan(Vec2::new(0.0, -PAN_STEP)),
                             Key::ArrowLeft => self.view.pan(Vec2::new(PAN_STEP, 0.0)),
@@ -548,10 +517,13 @@ impl App {
                 match self.selected_pattern {
                     Some(idx) => {
                         // Placing a pattern: a single click stamps it once.
+                        // Ignored outside `map_rect` (the letter/pillarbox
+                        // margin isn't part of the map).
                         if response.clicked()
                             && let Some(pointer) = response.interact_pointer_pos()
+                            && map_rect.contains(pointer)
                         {
-                            let cell = self.view.screen_to_cell(rect.min, pointer);
+                            let cell = self.view.screen_to_cell(map_rect.min, pointer);
                             let cells = self.library[idx].cells.clone();
                             self.sim.stamp(&cells, cell);
                         }
@@ -560,7 +532,8 @@ impl App {
                         // Google Maps-style click-and-drag panning: the
                         // primary button, which Draw/Eraser use for
                         // painting, instead moves the map directly under
-                        // the cursor.
+                        // the cursor. Not gated to `map_rect` — panning from
+                        // the letterbox margin is harmless and still useful.
                         if response.dragged() {
                             self.view.pan(response.drag_delta());
                         }
@@ -574,19 +547,24 @@ impl App {
                         // Free drawing: press-and-drag paints (or erases) every cell the
                         // cursor passes over, like a paintbrush. The Eraser tool forces
                         // every stroke to remove cells regardless of their state, instead
-                        // of the Draw tool's toggle/paint-a-trail behavior.
+                        // of the Draw tool's toggle/paint-a-trail behavior. Ignored outside
+                        // `map_rect` for the same reason as pattern placement above.
                         let erase = self.tool == Tool::Eraser;
                         if response.drag_started() {
-                            if let Some(pointer) = response.interact_pointer_pos() {
-                                let cell = self.view.screen_to_cell(rect.min, pointer);
+                            if let Some(pointer) = response.interact_pointer_pos()
+                                && map_rect.contains(pointer)
+                            {
+                                let cell = self.view.screen_to_cell(map_rect.min, pointer);
                                 let value = if erase { false } else { !self.sim.live.contains(&cell) };
                                 self.sim.set_cell(cell, value);
                                 self.paint_value = Some(value);
                                 self.last_paint_cell = Some(cell);
                             }
                         } else if response.dragged() {
-                            if let (Some(pointer), Some(value)) = (response.interact_pointer_pos(), self.paint_value) {
-                                let cell = self.view.screen_to_cell(rect.min, pointer);
+                            if let (Some(pointer), Some(value)) = (response.interact_pointer_pos(), self.paint_value)
+                                && map_rect.contains(pointer)
+                            {
+                                let cell = self.view.screen_to_cell(map_rect.min, pointer);
                                 if Some(cell) != self.last_paint_cell {
                                     let from = self.last_paint_cell.unwrap_or(cell);
                                     for c in line_cells(from, cell) {
@@ -597,8 +575,9 @@ impl App {
                             }
                         } else if response.clicked()
                             && let Some(pointer) = response.interact_pointer_pos()
+                            && map_rect.contains(pointer)
                         {
-                            let cell = self.view.screen_to_cell(rect.min, pointer);
+                            let cell = self.view.screen_to_cell(map_rect.min, pointer);
                             if erase {
                                 self.sim.set_cell(cell, false);
                             } else {
@@ -629,27 +608,27 @@ impl App {
             self.view.cell_size = self.view.cell_size.clamp(min_cell_size.min(MAX_CELL_SIZE), MAX_CELL_SIZE);
             self.view.clamp_to_world(self.canvas_size);
 
-            let (min, max) = self.view.visible_bounds(rect.size());
+            let (min, max) = self.view.visible_bounds(map_rect.size());
             let cs = self.view.cell_size;
 
             if self.show_grid && cs > 4.0 {
                 let stroke = Stroke::new(1.0, Color32::from_gray(35));
                 let mut x = min.0;
                 while x <= max.0 {
-                    let p = self.view.cell_to_screen(rect.min, (x, 0));
-                    painter.line_segment([Pos2::new(p.x, rect.min.y), Pos2::new(p.x, rect.max.y)], stroke);
+                    let p = self.view.cell_to_screen(map_rect.min, (x, 0));
+                    painter.line_segment([Pos2::new(p.x, map_rect.min.y), Pos2::new(p.x, map_rect.max.y)], stroke);
                     x += 1;
                 }
                 let mut y = min.1;
                 while y <= max.1 {
-                    let p = self.view.cell_to_screen(rect.min, (0, y));
-                    painter.line_segment([Pos2::new(rect.min.x, p.y), Pos2::new(rect.max.x, p.y)], stroke);
+                    let p = self.view.cell_to_screen(map_rect.min, (0, y));
+                    painter.line_segment([Pos2::new(map_rect.min.x, p.y), Pos2::new(map_rect.max.x, p.y)], stroke);
                     y += 1;
                 }
             }
 
             for (x, y) in self.sim.cells_in_bounds(min, max) {
-                let p = self.view.cell_to_screen(rect.min, (x, y));
+                let p = self.view.cell_to_screen(map_rect.min, (x, y));
                 painter.rect_filled(
                     Rect::from_min_size(p, Vec2::splat(cs)),
                     0.0,
@@ -661,9 +640,9 @@ impl App {
             if let Some(idx) = self.selected_pattern
                 && let Some(pointer) = response.hover_pos()
             {
-                let base = self.view.screen_to_cell(rect.min, pointer);
+                let base = self.view.screen_to_cell(map_rect.min, pointer);
                 for &(dx, dy) in &self.library[idx].cells {
-                    let p = self.view.cell_to_screen(rect.min, (base.0 + dx as i64, base.1 + dy as i64));
+                    let p = self.view.cell_to_screen(map_rect.min, (base.0 + dx as i64, base.1 + dy as i64));
                     painter.rect_filled(
                         Rect::from_min_size(p, Vec2::splat(cs)),
                         0.0,
@@ -674,8 +653,8 @@ impl App {
                 && let Some(pointer) = response.hover_pos()
             {
                 // Eraser cursor: a red outline over the cell it would remove.
-                let cell = self.view.screen_to_cell(rect.min, pointer);
-                let p = self.view.cell_to_screen(rect.min, cell);
+                let cell = self.view.screen_to_cell(map_rect.min, pointer);
+                let p = self.view.cell_to_screen(map_rect.min, cell);
                 painter.rect_stroke(
                     Rect::from_min_size(p, Vec2::splat(cs)),
                     0.0,
@@ -685,9 +664,11 @@ impl App {
             }
 
             // The plane is finite: draw its edge wherever it's on-screen, so
-            // it's clear painting/patterns stop working past this line.
-            let world_screen_min = self.view.cell_to_screen(rect.min, WORLD_MIN);
-            let world_screen_max = self.view.cell_to_screen(rect.min, (WORLD_MAX.0 + 1, WORLD_MAX.1 + 1));
+            // it's clear painting/patterns stop working past this line. At
+            // minimum zoom this now coincides exactly with `map_rect`'s
+            // border, since both represent the same 16:9 world rectangle.
+            let world_screen_min = self.view.cell_to_screen(map_rect.min, WORLD_MIN);
+            let world_screen_max = self.view.cell_to_screen(map_rect.min, (WORLD_MAX.0 + 1, WORLD_MAX.1 + 1));
             painter.rect_stroke(
                 Rect::from_min_max(world_screen_min, world_screen_max),
                 0.0,
@@ -696,6 +677,37 @@ impl App {
             );
 
             draw_minimap(&self.sim, &self.view, self.canvas_size, &painter, minimap_rect);
+
+            // On-canvas zoom control (Google Maps-style +/-, plus a reset
+            // button), floating over the canvas's bottom-left corner —
+            // mirrors the minimap's placement in the opposite corner. A
+            // floating `egui::Area` rather than a top-bar row, so it's
+            // always available regardless of whether the top bar is
+            // expanded or collapsed.
+            egui::Area::new(egui::Id::new("zoom_overlay"))
+                .fixed_pos(Pos2::new(rect.min.x + MINIMAP_MARGIN, rect.max.y - MINIMAP_MARGIN - 128.0))
+                .order(egui::Order::Foreground)
+                .show(&ctx, |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        ui.vertical(|ui| {
+                            if ui.button("+").on_hover_text("Zoom in").clicked() {
+                                self.view.zoom(KEY_ZOOM_STEP, map_rect.size() / 2.0, min_cell_size);
+                            }
+                            if ui.button("-").on_hover_text("Zoom out").clicked() {
+                                self.view.zoom(1.0 / KEY_ZOOM_STEP, map_rect.size() / 2.0, min_cell_size);
+                            }
+                            ui.separator();
+                            if ui
+                                .button("⟲")
+                                .on_hover_text("Reset view: recenter on the world and reset zoom")
+                                .clicked()
+                            {
+                                self.view = View::default();
+                            }
+                            ui.label(format!("{:.0}px/cell", self.view.cell_size));
+                        });
+                    });
+                });
 
             if self.show_input_debug {
                 let text = format!(
@@ -717,6 +729,20 @@ impl App {
             }
         });
     }
+}
+
+/// The largest rectangle with the given `aspect` (width / height) that fits
+/// centered inside `outer`, letter- or pillar-boxing whichever axis doesn't
+/// match. Used to keep the map itself always a true, undistorted rectangle
+/// matching the world's own aspect ratio, regardless of the canvas's actual
+/// (arbitrary, window-and-panel-dependent) shape.
+fn fit_aspect_rect(outer: Rect, aspect: f32) -> Rect {
+    let size = if outer.width() / outer.height() > aspect {
+        Vec2::new(outer.height() * aspect, outer.height()) // outer is relatively wider: pillarbox
+    } else {
+        Vec2::new(outer.width(), outer.width() / aspect) // outer is relatively taller: letterbox
+    };
+    Rect::from_center_size(outer.center(), size)
 }
 
 /// Maps a screen point inside the minimap box to the world cell it
@@ -820,5 +846,36 @@ fn paint_pattern_preview(painter: &egui::Painter, rect: Rect, cells: &[(i32, i32
     for &(x, y) in cells {
         let p = origin + Vec2::new((x - min_x) as f32 * scale, (y - min_y) as f32 * scale);
         painter.rect_filled(Rect::from_min_size(p, Vec2::splat(scale.max(1.0))), 0.0, Color32::from_rgb(120, 220, 130));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fit_aspect_rect_pillarboxes_a_relatively_wide_outer_rect() {
+        let outer = Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(1000.0, 500.0)); // 2:1, wider than 16:9
+        let fitted = fit_aspect_rect(outer, 16.0 / 9.0);
+        assert!((fitted.height() - 500.0).abs() < 1e-3, "height should match the constraining axis");
+        assert!((fitted.width() - 500.0 * 16.0 / 9.0).abs() < 1e-3);
+        assert!((fitted.center() - outer.center()).length() < 1e-3, "should stay centered in outer");
+    }
+
+    #[test]
+    fn fit_aspect_rect_letterboxes_a_relatively_tall_outer_rect() {
+        let outer = Rect::from_min_size(Pos2::new(5.0, 0.0), Vec2::new(500.0, 1000.0)); // 1:2, taller than 16:9
+        let fitted = fit_aspect_rect(outer, 16.0 / 9.0);
+        assert!((fitted.width() - 500.0).abs() < 1e-3, "width should match the constraining axis");
+        assert!((fitted.height() - 500.0 * 9.0 / 16.0).abs() < 1e-3);
+        assert!((fitted.center() - outer.center()).length() < 1e-3, "should stay centered in outer");
+    }
+
+    #[test]
+    fn fit_aspect_rect_leaves_an_already_matching_rect_untouched() {
+        let outer = Rect::from_min_size(Pos2::ZERO, Vec2::new(960.0, 540.0)); // already exactly 16:9
+        let fitted = fit_aspect_rect(outer, 16.0 / 9.0);
+        assert!((fitted.width() - outer.width()).abs() < 1e-3);
+        assert!((fitted.height() - outer.height()).abs() < 1e-3);
     }
 }
