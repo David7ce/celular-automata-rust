@@ -28,31 +28,40 @@ Windows, macOS and Linux from the same codebase.
   60px, and the dynamic minimum described below both divide it evenly), so
   the world's edge always lines up cleanly with the grid instead of
   clipping a partial cell at some zoom levels.
-- **Starting configurations**: a "Start" dropdown + "Load" button (Board
-  row) clears the board and lays out a named setup centered on the world —
-  Empty board, Random soup, Single glider, Gosper glider gun, Acorn,
-  R-pentomino, Diehard, Glider symphony (4 gliders), Pulsar field (3x3).
-  Built from the pattern library's own cell data (`src/starts.rs`), so a fix
-  to a pattern's shape automatically carries through to any start built from
-  it.
-- **Three-way toolbox** (Board row): Draw / Pan / Eraser, mutually
-  exclusive. Draw is the default click/drag-to-toggle-or-paint behavior.
-  Pan makes left-click-drag move the map directly under the cursor — the
-  classic Google Maps drag-to-pan gesture, on its own tool since the
-  primary button is otherwise needed for drawing (cursor turns into a
-  hand/grab icon while active). Eraser forces every click or drag stroke to
-  remove cells regardless of their state, with a red outline over the cell
-  it would remove. Selecting a pattern from the library switches back to
-  Draw automatically. Independent of which tool is active, a middle-mouse-
-  button drag always pans too (the Blender/Photoshop/Figma convention), so
-  panning is never more than one button away regardless of tool.
-- **Collapsible bars**: a "☰" button (top-left, always visible) slides the
-  pattern-library panel off-screen, and a "⚙" button collapses the
-  Rule/Board/custom-rule rows down to a single essentials strip (the two
-  toggles, Draw/Pan/Eraser, Play/Pause, Step, Gen/Live). Both toggle back
-  the same way, and neither one hides anything canvas navigation actually
-  needs — that's all moved on-canvas (see below), so collapsing both bars
-  fully gives the map maximum room without losing any functionality.
+- **Starting configurations**: a "Start" dropdown + "Load" button
+  (Simulation row) clears the board and lays out a named setup centered on
+  the world — Empty board, Random soup, Single glider, Gosper glider gun,
+  Acorn, R-pentomino, Diehard, Glider symphony (4 gliders), Pulsar field
+  (3x3). Built from the pattern library's own cell data (`src/starts.rs`),
+  so a fix to a pattern's shape automatically carries through to any start
+  built from it.
+- **Three-way toolbox** (top bar, always visible next to Play/Pause/Step):
+  Draw / Pan / Eraser, mutually exclusive. Draw is the default
+  click/drag-to-toggle-or-paint behavior. Pan makes left-click-drag move
+  the map directly under the cursor — the classic Google Maps drag-to-pan
+  gesture, on its own tool since the primary button is otherwise needed
+  for drawing (cursor turns into a hand/grab icon while active). Eraser
+  forces every click or drag stroke to remove cells regardless of their
+  state, with a red outline over the cell it would remove. Selecting a
+  pattern from the library switches back to Draw automatically.
+  Independent of which tool is active, a middle-mouse-button drag always
+  pans too (the Blender/Photoshop/Figma convention), so panning is never
+  more than one button away regardless of tool.
+- **Collapsible bars, without losing functionality**: a "☰" button
+  (top-left, always visible) hides the pattern-library overlay, and a "⚙"
+  button collapses the Simulation/custom-rule rows down to a single
+  essentials strip (the two toggles, Draw/Pan/Eraser, Play/Pause, Step,
+  Gen/Live). Both toggle back the same way. Neither one hides anything
+  canvas navigation actually needs — zoom, pan, and the pattern library
+  itself all live on/over the canvas (see below) — so collapsing both bars
+  fully gives the map maximum room with nothing lost.
+- **The pattern library floats over the canvas, not beside it.** It's an
+  `egui::Area` overlay (top-left corner) rather than a side `Panel`, so
+  showing or hiding it never resizes the canvas — the map's aspect ratio
+  and visible extent stay identical either way. This is most noticeable in
+  a maximized/full-screen window: what you see as "the canvas" is always
+  the true available area, not something that silently shrinks whenever
+  the library is open.
 - **The map is always a true, undistorted 16:9 rectangle.** Rather than
   stretching the world to fill whatever oddly-shaped area the canvas
   happens to have (window shape minus whatever the bars still take up),
@@ -84,18 +93,15 @@ Windows, macOS and Linux from the same codebase.
   ambiguous scroll signal — the two devices drive genuinely different,
   non-conflicting actions. Pinch gestures and Ctrl/Cmd+scroll always zoom
   regardless of device.
-- **On-canvas zoom control**: a small floating panel in the canvas's
-  bottom-left corner (mirroring the minimap's placement in the opposite
-  corner) with `+`/`-` buttons, a "⟲" reset-view button, and a live
-  "Npx/cell" readout — always present regardless of whether the top bar is
+- **On-canvas zoom control**: a floating panel in the canvas's bottom-left
+  corner (mirroring the minimap's placement in the opposite corner) with
+  large, fixed-size `+`/`−` buttons, a "⟲" reset-view button, and a live
+  "Npx" readout — always present regardless of whether the top bar is
   expanded or collapsed, and not tied to gesture recognition. True
   pinch-to-zoom via a laptop touchpad is a platform limitation on Linux
   (winit only wires up `PinchGesture`/`PanGesture` on macOS/iOS), so this
   on-canvas control (plus the wheel/Pan-tool/middle-drag panning above) is
-  the primary way to navigate via touchpad there, not just a fallback. A
-  "Show input debug" checkbox (Board row) overlays live zoom/scroll/touch
-  values on the canvas for diagnosing any input that still seems to do
-  nothing.
+  the primary way to navigate via touchpad there, not just a fallback.
 - **Minimum zoom always shows the whole map** — like Google Maps, you can
   zoom out until the entire plane is on screen, and no further; the exact
   cell size that achieves this is computed every frame from the current
@@ -131,7 +137,7 @@ src/
   rules.rs        - RuleSet, named presets, B/S formatting
   patterns.rs     - Pattern/Category, the pattern library definitions
   rle.rs          - minimal RLE decoder (b/o/$/! run-length format)
-  starts.rs       - named starting configurations (Board "Start" dropdown)
+  starts.rs       - named starting configurations (Simulation row's "Start" dropdown)
   view.rs         - pan/zoom camera, cell<->screen coordinate math
 ```
 
@@ -142,13 +148,13 @@ src/
 | Draw / erase a cell | Left-click (Draw tool; erases instead if the stroke starts on a live cell) |
 | Freehand paint a trail | Left-click-drag (Draw tool) |
 | Force-erase cells | Switch to the "Eraser" tool (top bar, always visible), then click/drag — always removes, regardless of cell state |
-| Place a pattern | Select it in the left panel, then click the canvas (switches back to the Draw tool) |
-| Cancel pattern placement | Right-click, `Esc`, or the "Cancel" button in the panel |
-| Load a starting configuration | "Start" dropdown + "Load" button (Board row) — clears the board first |
-| Zoom | Mouse scroll wheel (anchored on the cursor), pinch gesture (macOS/iOS only — see Known issues), Ctrl + scroll, `+`/`-` keys, or the `+`/`-` buttons in the on-canvas zoom overlay (bottom-left) |
+| Place a pattern | Select it in the pattern library overlay (top-left), then click the canvas (switches back to the Draw tool) |
+| Cancel pattern placement | Right-click, `Esc`, or the "Cancel" button in the overlay |
+| Load a starting configuration | "Start" dropdown + "Load" button (Simulation row) — clears the board first |
+| Zoom | Mouse scroll wheel (anchored on the cursor), pinch gesture (macOS/iOS only — see Known issues), Ctrl + scroll, `+`/`-` keys, or the `+`/`−` buttons in the on-canvas zoom overlay (bottom-left) |
 | Pan by dragging the map | Switch to the "Pan" tool (top bar, always visible), then left-click-drag — like Google Maps. Or middle-click-drag with any tool active |
 | Pan (other ways) | Two-finger trackpad scroll, arrow keys, or click/drag on the minimap |
-| Reclaim canvas space | "☰" button (top-left) hides the pattern library; "⚙" collapses the Rule/Board/custom-rule rows |
+| Reclaim canvas space | "☰" button (top-left) hides the pattern-library overlay (doesn't resize the canvas); "⚙" collapses the Simulation/custom-rule rows |
 | Jump to a distant part of the plane | Click or drag inside the minimap (bottom-right corner) |
 | Reset the camera | "⟲" button in the on-canvas zoom overlay (bottom-left) |
 | Play / Pause | `Space`, or the button in the top bar |
@@ -189,11 +195,8 @@ environment so far.
   does translate into zoom/pan) are only ever emitted on macOS/iOS — there's
   no code path that produces them on X11 or Wayland. Ctrl+scroll still
   zooms (egui synthesizes that itself from the scroll wheel), and the
-  on-screen zoom/pan controls added in the top bar work everywhere
-  regardless. Two-finger-scroll-to-pan *should* still work on Linux (it's
-  just a regular high-resolution scroll-wheel event, not a special
-  gesture) — if it doesn't on a given machine, turn on "Show input debug"
-  in the top bar and see whether `scroll_delta` moves at all while
-  two-finger-scrolling; that'll tell us whether it's this app, the desktop
-  environment intercepting the gesture, or the touchpad driver.
+  on-canvas zoom control plus the Pan tool/middle-drag panning work
+  everywhere regardless of gesture support. Two-finger trackpad scrolling
+  to pan works on Linux — it arrives as an ordinary high-resolution
+  scroll-wheel event tagged `MouseWheelUnit::Point`, not a special gesture.
 - See `ROADMAP.md` for what's next.

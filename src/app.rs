@@ -75,13 +75,12 @@ pub struct App {
     /// explicitly, like `dragging_minimap`, so panning keeps working even if
     /// the cursor slips off the canvas mid-drag).
     middle_pan_active: bool,
-    /// Shows live gesture/input values in a canvas corner, for diagnosing
-    /// touchpad gestures that don't behave as expected on a given machine.
-    show_input_debug: bool,
-    /// Whether the pattern-library side panel is expanded — the "☰" button
-    /// toggles this, collapsing it to reclaim canvas width.
+    /// Whether the pattern-library overlay is shown — the "☰" button toggles
+    /// this. It floats on top of the canvas (an `egui::Area`, not a side
+    /// `Panel`) so showing/hiding it never changes the canvas's own size —
+    /// the map's aspect ratio stays correct and full-size either way.
     show_side_panel: bool,
-    /// Whether the Board/View/custom-rule control rows are shown below the
+    /// Whether the Simulation/custom-rule control rows are shown below the
     /// always-visible essentials — the "⚙" button toggles this, collapsing
     /// them to reclaim canvas height.
     show_extra_controls: bool,
@@ -111,7 +110,6 @@ impl App {
             canvas_size: Vec2::new(800.0, 600.0),
             dragging_minimap: false,
             middle_pan_active: false,
-            show_input_debug: false,
             show_side_panel: true,
             show_extra_controls: true,
         }
@@ -128,7 +126,6 @@ impl eframe::App for App {
         }
 
         self.top_panel(ui);
-        self.side_panel(ui);
         self.central_canvas(ui);
     }
 }
@@ -149,7 +146,7 @@ impl App {
                 }
                 if ui
                     .selectable_label(self.show_extra_controls, "⚙")
-                    .on_hover_text("Show/hide rule/board/view settings — collapse both bars to give the map more room")
+                    .on_hover_text("Show/hide rule/board/custom-rule settings — collapse both bars to give the map more room")
                     .clicked()
                 {
                     self.show_extra_controls = !self.show_extra_controls;
@@ -206,7 +203,10 @@ impl App {
 
             ui.separator();
             ui.label(egui::RichText::new("Simulation").small().strong());
-            ui.horizontal(|ui| {
+            // One wrapped row instead of separate "Simulation"/"Board"
+            // rows — wraps to more lines on a narrow window rather than
+            // overflowing, since there's now a fair amount packed in here.
+            ui.horizontal_wrapped(|ui| {
                 ui.label("Rule:");
                 egui::ComboBox::from_id_salt("rule_preset")
                     .selected_text(format!("{} ({})", self.preset_name, self.preset_class))
@@ -241,11 +241,8 @@ impl App {
                     .on_hover_text("Cells born on the most recent step (or summed over a Skip batch)");
                 ui.label(format!("Deaths: {}", self.sim.last_deaths))
                     .on_hover_text("Cells that died on the most recent step (or summed over a Skip batch)");
-            });
 
-            ui.separator();
-            ui.label(egui::RichText::new("Board").small().strong());
-            ui.horizontal(|ui| {
+                ui.separator();
                 ui.label("Start:");
                 egui::ComboBox::from_id_salt("start_config")
                     .selected_text(starts::START_CONFIGS[self.selected_start])
@@ -285,8 +282,6 @@ impl App {
 
                 ui.separator();
                 ui.checkbox(&mut self.show_grid, "Show grid");
-                ui.checkbox(&mut self.show_input_debug, "Show input debug")
-                    .on_hover_text("Live scroll/zoom/touch values, to diagnose gestures that don't do anything");
             });
 
             ui.separator();
@@ -316,50 +311,63 @@ impl App {
         });
     }
 
-    fn side_panel(&mut self, ui: &mut egui::Ui) {
-        // `show_collapsible` slides the panel off toward its edge when
-        // `show_side_panel` is false (toggled by the "☰" button in the top
-        // bar), reclaiming its width for the canvas — the map's aspect
-        // ratio is much easier to actually see with both bars out of the way.
-        egui::Panel::left("patterns").min_size(180.0).default_size(220.0).show_collapsible(
-            ui,
-            &mut self.show_side_panel,
-            |ui| {
-                ui.heading("Pattern Library");
-                if self.selected_pattern.is_some() {
+    /// The pattern library as a floating overlay on top of the canvas
+    /// (rather than a side `Panel` that shrinks it) — toggled by the "☰"
+    /// button, positioned in the canvas's top-left corner. Since it's just
+    /// painted over the canvas in its own layer, showing/hiding it never
+    /// changes the canvas's actual size, so the map's aspect ratio (and how
+    /// much of it is visible) stays exactly the same either way — including
+    /// in a maximized/full-screen window, where this is most visible.
+    fn pattern_library_overlay(&mut self, ctx: &egui::Context, canvas_rect: Rect) {
+        if !self.show_side_panel {
+            return;
+        }
+        egui::Area::new(egui::Id::new("pattern_library_overlay"))
+            .fixed_pos(canvas_rect.min + Vec2::splat(MINIMAP_MARGIN))
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_width(220.0);
                     ui.horizontal(|ui| {
-                        ui.label("Click canvas to place. ");
-                        if ui.button("✖").on_hover_text("Cancel pattern placement").clicked() {
-                            self.selected_pattern = None;
+                        ui.heading("Pattern Library");
+                        if ui.small_button("✖").on_hover_text("Hide the pattern library").clicked() {
+                            self.show_side_panel = false;
                         }
                     });
-                }
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    for category in Category::ALL {
-                        ui.collapsing(category.label(), |ui| {
-                            for (idx, pattern) in self.library.iter().enumerate() {
-                                if pattern.category != category {
-                                    continue;
-                                }
-                                ui.horizontal(|ui| {
-                                    let (rect, response) =
-                                        ui.allocate_exact_size(Vec2::new(36.0, 36.0), Sense::click());
-                                    paint_pattern_preview(ui.painter(), rect, &pattern.cells);
-                                    let label = ui.selectable_label(
-                                        self.selected_pattern == Some(idx),
-                                        pattern.name,
-                                    );
-                                    if response.clicked() || label.clicked() {
-                                        self.selected_pattern = Some(idx);
-                                        self.tool = Tool::Draw;
-                                    }
-                                });
+                    if self.selected_pattern.is_some() {
+                        ui.horizontal(|ui| {
+                            ui.label("Click canvas to place. ");
+                            if ui.button("✖").on_hover_text("Cancel pattern placement").clicked() {
+                                self.selected_pattern = None;
                             }
                         });
                     }
+                    egui::ScrollArea::vertical().max_height((canvas_rect.height() - 100.0).max(120.0)).show(ui, |ui| {
+                        for category in Category::ALL {
+                            ui.collapsing(category.label(), |ui| {
+                                for (idx, pattern) in self.library.iter().enumerate() {
+                                    if pattern.category != category {
+                                        continue;
+                                    }
+                                    ui.horizontal(|ui| {
+                                        let (rect, response) =
+                                            ui.allocate_exact_size(Vec2::new(36.0, 36.0), Sense::click());
+                                        paint_pattern_preview(ui.painter(), rect, &pattern.cells);
+                                        let label = ui.selectable_label(
+                                            self.selected_pattern == Some(idx),
+                                            pattern.name,
+                                        );
+                                        if response.clicked() || label.clicked() {
+                                            self.selected_pattern = Some(idx);
+                                            self.tool = Tool::Draw;
+                                        }
+                                    });
+                                }
+                            });
+                        }
+                    });
                 });
-            },
-        );
+            });
     }
 
     fn central_canvas(&mut self, ui: &mut egui::Ui) {
@@ -452,8 +460,6 @@ impl App {
                     self.middle_pan_active = false;
                 }
             }
-
-            let touch_count = ctx.input(|i| i.multi_touch().map_or(0, |t| t.num_touches));
 
             // Keyboard shortcuts (ignored while a widget like a text field wants
             // keyboard input, though none currently exist in this app).
@@ -683,50 +689,41 @@ impl App {
             // mirrors the minimap's placement in the opposite corner. A
             // floating `egui::Area` rather than a top-bar row, so it's
             // always available regardless of whether the top bar is
-            // expanded or collapsed.
+            // expanded or collapsed. Buttons are large, fixed-size squares
+            // (rather than default-sized text buttons) so they read as a
+            // deliberate map-style control cluster and stay comfortably
+            // clickable at any zoom level.
+            let zoom_button_size = Vec2::splat(34.0);
             egui::Area::new(egui::Id::new("zoom_overlay"))
-                .fixed_pos(Pos2::new(rect.min.x + MINIMAP_MARGIN, rect.max.y - MINIMAP_MARGIN - 128.0))
+                .fixed_pos(Pos2::new(rect.min.x + MINIMAP_MARGIN, rect.max.y - MINIMAP_MARGIN - 168.0))
                 .order(egui::Order::Foreground)
                 .show(&ctx, |ui| {
-                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    egui::Frame::popup(ui.style()).inner_margin(6.0).show(ui, |ui| {
+                        ui.spacing_mut().item_spacing = Vec2::new(0.0, 4.0);
                         ui.vertical(|ui| {
-                            if ui.button("+").on_hover_text("Zoom in").clicked() {
+                            let plus = egui::RichText::new("+").size(18.0).strong();
+                            if ui.add_sized(zoom_button_size, egui::Button::new(plus)).on_hover_text("Zoom in").clicked() {
                                 self.view.zoom(KEY_ZOOM_STEP, map_rect.size() / 2.0, min_cell_size);
                             }
-                            if ui.button("-").on_hover_text("Zoom out").clicked() {
+                            let minus = egui::RichText::new("−").size(18.0).strong();
+                            if ui.add_sized(zoom_button_size, egui::Button::new(minus)).on_hover_text("Zoom out").clicked() {
                                 self.view.zoom(1.0 / KEY_ZOOM_STEP, map_rect.size() / 2.0, min_cell_size);
                             }
                             ui.separator();
                             if ui
-                                .button("⟲")
+                                .add_sized(zoom_button_size, egui::Button::new("⟲"))
                                 .on_hover_text("Reset view: recenter on the world and reset zoom")
                                 .clicked()
                             {
                                 self.view = View::default();
                             }
-                            ui.label(format!("{:.0}px/cell", self.view.cell_size));
+                            ui.separator();
+                            ui.label(egui::RichText::new(format!("{:.0}px", self.view.cell_size)).small());
                         });
                     });
                 });
 
-            if self.show_input_debug {
-                let text = format!(
-                    "zoom_delta={zoom_delta:.4}\nline_wheel={line_wheel_notches:.2} (mouse -> zoom)\ntrackpad_pan=({:.1}, {:.1})\ntouches={touch_count}\ncell_size={cs:.1} (min {min_cell_size:.2})",
-                    trackpad_pan_delta.x, trackpad_pan_delta.y,
-                );
-                painter.rect_filled(
-                    Rect::from_min_size(rect.min + Vec2::splat(8.0), Vec2::new(260.0, 84.0)),
-                    4.0,
-                    Color32::from_black_alpha(200),
-                );
-                painter.text(
-                    rect.min + Vec2::splat(12.0),
-                    egui::Align2::LEFT_TOP,
-                    text,
-                    egui::FontId::monospace(13.0),
-                    Color32::from_rgb(230, 230, 230),
-                );
-            }
+            self.pattern_library_overlay(&ctx, rect);
         });
     }
 }

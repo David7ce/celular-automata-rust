@@ -495,6 +495,49 @@ a latent bug now folded in since the app already needed `canvas_size` to
 correctly represent `map_rect` for this same round of work. Now uses
 `self.canvas_size` directly.
 
+## Update — 2026-09-11 (still later: on-canvas pattern library, bigger zoom buttons, merged Board row)
+
+Follow-up feedback: "improve +/- reset buttons, also put pattern library
+on top of canvas, so you know exactly aspect ratio in full screen. also
+remove non necessary things from board section and integrate in first one
+row simulation."
+
+**Pattern library moved off the side `Panel` onto a floating `Area`.**
+`side_panel` (an `egui::Panel::left` that shrank the `CentralPanel` by its
+width whenever shown) is gone. In its place, `pattern_library_overlay`
+draws the same content — heading, cancel-placement row, categorized
+scrollable pattern list — inside an `egui::Area` pinned to the canvas's
+top-left corner, still toggled by the same "☰" button. Because an `Area`
+paints over the canvas instead of reserving space from it, showing or
+hiding the library no longer changes `rect` (the canvas's own size) at
+all — which is exactly what "so you know exactly aspect ratio in full
+screen" was asking for: in a maximized window, the canvas (and therefore
+`map_rect`, computed from it) is now always the true full available area,
+never silently narrower because the library happened to be open.
+
+**Zoom overlay buttons enlarged and restyled.** `+`/`−`/`⟲` are now
+`ui.add_sized` 34x34 squares with bold 18pt glyphs (verified `−`, U+2212,
+against the bundled `Ubuntu-Light.ttf` charset rather than assuming), with
+tighter, deliberate spacing (`item_spacing` set explicitly) and a small
+`inner_margin` on the popup frame — reads as a real map-style control
+cluster now instead of default-sized text buttons crammed into a corner.
+
+**Board row folded into Simulation.** The separate "Board" heading/row
+(Start/Load, Clear, Random+density, Show grid, Show input debug) is gone;
+everything except "Show input debug" now lives in one `ui.horizontal_wrapped`
+under the "Simulation" heading, alongside Rule/Skip/Speed/Births/Deaths —
+`horizontal_wrapped` (not `horizontal`) so it wraps to a second line on a
+narrow window rather than overflowing, now that there's a lot packed into
+one logical row. "Show input debug" — a diagnostic checkbox from early
+gesture-debugging sessions, whose job is now covered by the on-canvas zoom
+control, the Pan tool, and the device-aware wheel/trackpad split all
+having settled into working, understood behavior — was removed entirely
+(field, checkbox, and the debug-text overlay it drove), per "remove non
+necessary things."
+
+`cargo test` (9/9) and `cargo clippy --all-targets` still clean; full
+release rebuild done.
+
 ## Next up (priority order)
 
 1. **Pattern placement niceties.** Rotate/flip the selected pattern before
